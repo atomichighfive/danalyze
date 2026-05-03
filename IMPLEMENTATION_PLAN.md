@@ -582,7 +582,7 @@ imports `dataclasses`.
 
 ---
 
-## Phase 12B: Filesystem parity tests
+## Phase 12B: Filesystem parity tests [done]
 
 **Files modified:**
 - `tests/test_filesystem.py` — add parity and real-FS scandir tests

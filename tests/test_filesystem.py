@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -215,3 +216,142 @@ def test_real_filesystem_is_mount_returns_bool(tmp_path: Path) -> None:
     fs = RealFilesystem()
     result = fs.is_mount(tmp_path)
     assert isinstance(result, bool)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for sample_tree-mirroring tests (Phase 12B)
+# ---------------------------------------------------------------------------
+
+_EXPECTED_ROOT_NAMES = {"docs", "downloads", "readme.txt", "private"}
+_EXPECTED_IS_DIR = {
+    "docs": True,
+    "downloads": True,
+    "readme.txt": False,
+    "private": True,
+}
+
+
+@pytest.fixture
+def sample_tmp_root(tmp_path: Path) -> Path:
+    """Create a temporary directory tree mirroring sample_tree from conftest.py.
+
+    Tree shape:
+        root/
+          docs/
+            a.txt  (100 bytes)
+            b.txt  (200 bytes)
+          downloads/
+          readme.txt (1024 bytes)
+          private/
+
+    Args:
+        tmp_path: pytest-provided temporary directory.
+
+    Returns:
+        Path to the root directory.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "docs").mkdir()
+    (root / "docs" / "a.txt").write_bytes(b"x" * 100)
+    (root / "docs" / "b.txt").write_bytes(b"x" * 200)
+    (root / "downloads").mkdir()
+    (root / "readme.txt").write_bytes(b"x" * 1024)
+    (root / "private").mkdir()
+    return root
+
+
+def _make_mirror_fs(root: Path) -> InMemoryFilesystem:
+    """Build an InMemoryFilesystem that mirrors the sample_tmp_root layout.
+
+    Args:
+        root: Real filesystem root; its string form becomes the top-level key.
+
+    Returns:
+        InMemoryFilesystem with the same names, is_dir flags, and file sizes.
+    """
+    return InMemoryFilesystem(
+        {
+            str(root): {
+                "docs": {"a.txt": 100, "b.txt": 200},
+                "downloads": {},
+                "readme.txt": 1024,
+                "private": {},
+            }
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# RealFilesystem — scandir tests against the sample_tree structure
+# ---------------------------------------------------------------------------
+
+
+def test_real_scandir_returns_expected_names(sample_tmp_root: Path) -> None:
+    fs = RealFilesystem()
+    names = {e.name for e in fs.scandir(sample_tmp_root)}
+    assert names == _EXPECTED_ROOT_NAMES
+
+
+def test_real_scandir_is_dir_flags_match(sample_tmp_root: Path) -> None:
+    fs = RealFilesystem()
+    flags = {e.name: e.is_dir() for e in fs.scandir(sample_tmp_root)}
+    for name, expected in _EXPECTED_IS_DIR.items():
+        assert flags[name] == expected, f"is_dir mismatch for {name!r}"
+
+
+def test_real_stat_returns_correct_size(sample_tmp_root: Path) -> None:
+    fs = RealFilesystem()
+    assert fs.stat(sample_tmp_root / "readme.txt").st_size == 1024
+    assert fs.stat(sample_tmp_root / "docs" / "a.txt").st_size == 100
+    assert fs.stat(sample_tmp_root / "docs" / "b.txt").st_size == 200
+
+
+# ---------------------------------------------------------------------------
+# Parity tests — RealFilesystem vs InMemoryFilesystem
+# ---------------------------------------------------------------------------
+
+
+def test_inmemory_and_real_scandir_same_names(sample_tmp_root: Path) -> None:
+    real_fs = RealFilesystem()
+    mem_fs = _make_mirror_fs(sample_tmp_root)
+    real_names = {e.name for e in real_fs.scandir(sample_tmp_root)}
+    mem_names = {e.name for e in mem_fs.scandir(sample_tmp_root)}
+    assert real_names == mem_names
+
+
+def test_inmemory_and_real_is_dir_flags_match(sample_tmp_root: Path) -> None:
+    real_fs = RealFilesystem()
+    mem_fs = _make_mirror_fs(sample_tmp_root)
+    real_flags = {e.name: e.is_dir() for e in real_fs.scandir(sample_tmp_root)}
+    mem_flags = {e.name: e.is_dir() for e in mem_fs.scandir(sample_tmp_root)}
+    assert real_flags == mem_flags
+
+
+def test_inmemory_and_real_stat_same_size(sample_tmp_root: Path) -> None:
+    real_fs = RealFilesystem()
+    mem_fs = _make_mirror_fs(sample_tmp_root)
+    for relpath in (
+        Path("readme.txt"),
+        Path("docs") / "a.txt",
+        Path("docs") / "b.txt",
+    ):
+        real_size = real_fs.stat(sample_tmp_root / relpath).st_size
+        mem_size = mem_fs.stat(sample_tmp_root / relpath).st_size
+        assert real_size == mem_size, f"Size mismatch for {relpath}"
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="Cannot restrict permissions as root")
+def test_parity_permission_denied_raises_for_both(sample_tmp_root: Path) -> None:
+    private = sample_tmp_root / "private"
+    private.chmod(0o000)
+    try:
+        real_fs = RealFilesystem()
+        mem_fs = _make_mirror_fs(sample_tmp_root)
+        mem_fs.set_permission_denied(str(sample_tmp_root / "private"))
+        with pytest.raises(PermissionError):
+            list(real_fs.scandir(private))
+        with pytest.raises(PermissionError):
+            list(mem_fs.scandir(sample_tmp_root / "private"))
+    finally:
+        private.chmod(0o755)
