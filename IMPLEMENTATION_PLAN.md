@@ -135,7 +135,7 @@ repos:
 
 ---
 
-## Phase 2: Exceptions & Models
+## Phase 2: Exceptions & Models [done]
 
 **Files created:**
 - `danalyze/exceptions.py`
