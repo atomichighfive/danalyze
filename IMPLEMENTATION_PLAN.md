@@ -85,7 +85,7 @@ __main__                                        <- entry point
 
 ---
 
-## Phase 1: Project scaffold
+## Phase 1: Project scaffold [done]
 
 **Repository:** `git@github.com:atomichighfive/danalyze.git`
 Clone the repo, then set up the project inside it.
