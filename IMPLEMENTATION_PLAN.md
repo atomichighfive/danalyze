@@ -256,7 +256,7 @@ repos:
 
 ---
 
-## Phase 5: Filesystem abstraction
+## Phase 5: Filesystem abstraction [done]
 
 **Files created:**
 - `danalyze/filesystem.py`

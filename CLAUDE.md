@@ -68,7 +68,11 @@ See `IMPLEMENTATION_PLAN.md` for the full list of phases and their scope.
 
 Each phase follows these steps in order — do not skip or reorder them:
 
-### 1. Clarify plan for phase
+### 1. Confirm with user
+Ask the user — via `AskUserQuestion` — whether to proceed with this phase. Do not
+start any work until the user explicitly confirms.
+
+### 2. Clarify plan for phase
 Read the phase entry in `IMPLEMENTATION_PLAN.md`. Confirm the scope: which files are
 created or modified, what is mocked, and what the key test cases are. Raise any
 ambiguities before writing a single line of code.
@@ -78,37 +82,37 @@ Mark the phase heading in `IMPLEMENTATION_PLAN.md` with `[started]`, e.g.:
 ## Phase 2: Exceptions & Models [started]
 ```
 
-### 2. Write tests & mocks
+### 3. Write tests & mocks
 Write all tests for the phase first. They must fail (red) at this point — that is the
 goal. If a dependency is not yet implemented, create the minimal stub or mock described
 in the phase spec. Tests live in the file named in the phase. Use fixtures from
 `tests/conftest.py` wherever possible.
 
-### 3. Implement
+### 4. Implement
 Write the production code to make the tests pass (green). Do not add functionality
 beyond what the tests require.
 
-### 4. Test and fix
+### 5. Test and fix
 Run `uv run pytest` and fix failures until all tests in the current phase pass.
 Tests from earlier phases must continue to pass (no regressions).
 
-### 5. Pre-commit
+### 6. Pre-commit
 Run `uv run pre-commit run --all-files`. Fix any ruff lint or formatting issues.
 Do not suppress ruff errors with `# noqa` without a justifying comment.
 
-### 6. UAT
+### 7. UAT
 Determine whether the phase produced behaviour the user can observe in a terminal.
 
 - **If yes:** draft a short UAT plan (numbered steps, each a concrete action + expected
   result), then present it to the user one step at a time using the `AskUserQuestion`
   tool. Wait for the user to confirm each step passes before moving on. If a step
-  fails, fix the issue and restart from step 4.
+  fails, fix the issue and restart from step 5.
 - **If no** (e.g. the phase only adds pure-logic modules or test infrastructure with no
   runnable entry point yet): state the rationale clearly and ask the user — via
-  `AskUserQuestion` — whether to skip UAT for this phase. Do not proceed to step 7
+  `AskUserQuestion` — whether to skip UAT for this phase. Do not proceed to step 8
   until the user approves the skip.
 
-### 7. Commit
+### 8. Commit
 Mark the phase heading in `IMPLEMENTATION_PLAN.md` with `[done]`, e.g.:
 ```
 ## Phase 2: Exceptions & Models [done]
