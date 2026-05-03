@@ -716,7 +716,7 @@ columns: `path` and `note`. Only paths that have a non-empty note are written.
 
 ---
 
-## Phase 13: CLI entry point
+## Phase 13: CLI entry point [done]
 
 **Files modified:**
 - `danalyze/__main__.py` — replace the UAT stub created in Phase 9/10 with a full
