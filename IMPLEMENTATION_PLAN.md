@@ -432,7 +432,7 @@ selected_node(state: AppState) -> FileNode
 
 ---
 
-## Phase 9: TUI layout
+## Phase 9: TUI layout [done]
 
 **Files created:**
 - `danalyze/tui/__init__.py`
