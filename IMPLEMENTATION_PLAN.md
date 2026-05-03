@@ -471,7 +471,7 @@ in all Phase 9 tests (scanner is never called in this phase).
 
 ---
 
-## Phase 10: TUI navigation
+## Phase 10: TUI navigation [started]
 
 **Files modified:**
 - `danalyze/tui/app.py` — add key bindings: up, down, left, right
