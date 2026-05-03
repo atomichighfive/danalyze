@@ -5,7 +5,7 @@ from __future__ import annotations
 from rich.text import Text
 from textual.widgets import Static
 
-from danalyze.formatter import format_bar_line, format_size
+from danalyze.formatter import format_size, render_bar
 from danalyze.models import ScanStatus
 from danalyze.state import AppState
 
@@ -181,15 +181,15 @@ class SizePanel(Static):
         self._render_state()
 
     @staticmethod
-    def _build(state: AppState) -> str:
-        """Render per-entry size information as a plain-text string.
+    def _build(state: AppState) -> Text:
+        """Render per-entry size information as a Rich Text object with selection highlight.
 
         Args:
             state: Application state to render from.
 
         Returns:
-            Multi-line string with one size entry per line, aligned with
-            FileTreePanel row order.
+            Rich Text with one size entry per line; the selected row is highlighted
+            with reverse video, matching the FileTreePanel highlight pattern.
         """
         children = state.view_root.children or []
         done_sizes = [
@@ -197,16 +197,21 @@ class SizePanel(Static):
         ]
         max_size = max(done_sizes, default=0) or 1
 
-        lines: list[str] = []
-        for child in children:
+        result = Text()
+        for i, child in enumerate(children):
+            if i > 0:
+                result.append("\n")
+            sel_style = "reverse" if i == state.selected_index else ""
+
             if child.scan_status == ScanStatus.ERROR:
-                line = child.error or "error"
+                result.append(child.error or "error", style=sel_style)
             elif child.scan_status == ScanStatus.DONE and child.size is not None:
-                line = format_bar_line(child.size, max_size, _BAR_WIDTH)
+                result.append(format_size(child.size).rjust(8) + "  ", style=sel_style)
+                result.append(render_bar(child.size / max_size, _BAR_WIDTH))
             else:
-                line = "---"
-            lines.append(line)
-        return "\n".join(lines)
+                result.append("---", style=sel_style)
+
+        return result
 
     def _render_state(self) -> None:
         self.update(self._build(self._state))

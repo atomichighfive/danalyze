@@ -493,3 +493,27 @@ async def test_escape_in_save_prompt_dismisses_without_writing(base_state, tmp_p
         await pilot.press("escape")
         assert not app.query(PromptOverlay)
         assert not filepath.exists()
+
+
+# ---------------------------------------------------------------------------
+# Phase 12C: full-row cursor highlight
+# ---------------------------------------------------------------------------
+
+
+def test_size_panel_selected_row_has_reverse_style(base_state) -> None:
+    """SizePanel._build() applies reverse-video to the selected row."""
+    from rich.text import Text
+
+    state = base_state(selected_index=2)  # readme.txt is DONE — has a real size
+    result = SizePanel._build(state)
+    assert isinstance(result, Text)
+    reverse_spans = [s for s in result._spans if str(s.style) == "reverse"]
+    assert len(reverse_spans) == 1
+
+
+def test_size_panel_non_selected_rows_have_no_reverse_style(base_state) -> None:
+    """Only the selected row carries reverse-video; all others are unstyled."""
+    state = base_state(selected_index=0)  # docs/ selected; 4 children total
+    result = SizePanel._build(state)
+    reverse_spans = [s for s in result._spans if str(s.style) == "reverse"]
+    assert len(reverse_spans) == 1

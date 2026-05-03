@@ -614,7 +614,7 @@ imports `dataclasses`.
 
 ---
 
-## Phase 12C: Full-row cursor highlight
+## Phase 12C: Full-row cursor highlight [done]
 
 **Scope:** The selected entry's reverse-video highlight currently covers only the
 `FileTreePanel` column. The `SizePanel` row at the same index is visually unstyled,
