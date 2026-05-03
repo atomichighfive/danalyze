@@ -101,12 +101,21 @@ class FileTreePanel(Static):
         """
         self._render_state()
 
+    def on_resize(self) -> None:
+        """Re-render when the panel width changes so note truncation stays accurate.
+
+        Side effects:
+            Calls update() with re-rendered tree text using current width.
+        """
+        self._render_state()
+
     @staticmethod
-    def _build(state: AppState) -> Text:
+    def _build(state: AppState, width: int = 40) -> Text:
         """Render the file tree as a Rich Text object with selection highlight.
 
         Args:
             state: Application state to render from.
+            width: Panel width in characters; used to truncate long notes.
 
         Returns:
             Rich Text with one entry per line; the selected row is highlighted
@@ -125,9 +134,24 @@ class FileTreePanel(Static):
 
             name = child.name + ("/" if child.is_dir else "")
             has_note = str(child.path) in state.notes
-            tag = "  [note]" if has_note else ("  [error]" if is_error else "")
-            line = f"{prefix} {name}{tag}"
 
+            if has_note:
+                raw = state.notes[str(child.path)]
+                # Space available for the quoted note after "X name/  " and a 2-char margin.
+                available = width - len(name) - 6
+                full = f'"{raw}"'
+                if available >= len(full):
+                    tag = f"  {full}"
+                elif available >= 5:
+                    tag = f'  "{raw[:available - 5]}..."'
+                else:
+                    tag = ""
+            elif is_error:
+                tag = "  [error]"
+            else:
+                tag = ""
+
+            line = f"{prefix} {name}{tag}"
             if i > 0:
                 result.append("\n")
             style = "reverse" if i == state.selected_index else ""
@@ -135,7 +159,7 @@ class FileTreePanel(Static):
         return result
 
     def _render_state(self) -> None:
-        self.update(self._build(self._state))
+        self.update(self._build(self._state, self.size.width or 40))
 
     def refresh_state(self, state: AppState) -> None:
         """Update the widget with a new AppState.

@@ -90,7 +90,7 @@ async def test_file_tree_panel_noted_entry_has_tag(base_state, sample_tree) -> N
         text = app.query_one(FileTreePanel).render().plain
         lines = text.splitlines()
         noted_line = next(ln for ln in lines if "docs" in ln)
-        assert "[note]" in noted_line
+        assert "my note" in noted_line
 
 
 async def test_size_panel_error_entry_shows_error_message(base_state, sample_tree) -> None:
@@ -372,7 +372,7 @@ async def test_type_note_and_submit_saves_note(base_state, sample_tree) -> None:
         await pilot.press("enter")
         assert not app.query(NoteOverlay)
         text = app.query_one(FileTreePanel).render().plain
-        assert "[note]" in text
+        assert "hello" in text
 
 
 async def test_enter_on_noted_entry_prefills_overlay(base_state, sample_tree) -> None:
@@ -395,7 +395,7 @@ async def test_empty_submit_removes_note(base_state, sample_tree) -> None:
             await pilot.press("backspace")
         await pilot.press("enter")
         text = app.query_one(FileTreePanel).render().plain
-        assert "[note]" not in text
+        assert "to remove" not in text
 
 
 async def test_escape_cancels_note_without_saving(base_state) -> None:
@@ -408,7 +408,7 @@ async def test_escape_cancels_note_without_saving(base_state) -> None:
         await pilot.press("escape")
         assert not app.query(NoteOverlay)
         text = app.query_one(FileTreePanel).render().plain
-        assert "[note]" not in text
+        assert "typed" not in text
 
 
 async def test_q_mounts_quit_prompt(base_state) -> None:
@@ -517,3 +517,39 @@ def test_size_panel_non_selected_rows_have_no_reverse_style(base_state) -> None:
     result = SizePanel._build(state)
     reverse_spans = [s for s in result._spans if str(s.style) == "reverse"]
     assert len(reverse_spans) == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 12D: inline note text display
+# ---------------------------------------------------------------------------
+
+
+async def test_file_tree_shows_note_text_inline(base_state, sample_tree) -> None:
+    """Noted entry shows the actual note text wrapped in double quotes."""
+    path_key = str(sample_tree.children[0].path)
+    app = _make_app(base_state, notes={path_key: "important archive"})
+    async with app.run_test():
+        text = app.query_one(FileTreePanel).render().plain
+        lines = text.splitlines()
+        noted_line = next(ln for ln in lines if "docs" in ln)
+        assert '"important archive"' in noted_line
+
+
+def test_file_tree_long_note_truncated(base_state, sample_tree) -> None:
+    """Long notes are truncated to fit the panel width and end with '...\\"'."""
+    path_key = str(sample_tree.children[0].path)
+    state = base_state(notes={path_key: "x" * 100})
+    # width=30, name="docs/" (5): available = 30-5-6 = 19
+    # full '"xxx...xxx"' = 102 > 19 → truncate; N = 19-5 = 14
+    result = FileTreePanel._build(state, width=30)
+    noted_line = next(ln for ln in result.plain.splitlines() if "docs" in ln)
+    assert noted_line.endswith('..."')
+
+
+async def test_file_tree_no_note_token(base_state, sample_tree) -> None:
+    """The literal string '[note]' never appears in the rendered tree."""
+    path_key = str(sample_tree.children[0].path)
+    app = _make_app(base_state, notes={path_key: "any note"})
+    async with app.run_test():
+        text = app.query_one(FileTreePanel).render().plain
+        assert "[note]" not in text

@@ -648,7 +648,7 @@ approval:
 
 ---
 
-## Phase 12D: Inline note text display
+## Phase 12D: Inline note text display [done]
 
 **Files modified:**
 - `danalyze/tui/widgets.py` — update `FileTreePanel._build()` to show the actual note
