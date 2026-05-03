@@ -402,7 +402,7 @@ selected_node(state: AppState) -> FileNode
 
 ---
 
-## Phase 8: Scanner
+## Phase 8: Scanner [done]
 
 **Files created:**
 - `danalyze/scanner.py`
