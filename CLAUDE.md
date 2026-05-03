@@ -40,6 +40,11 @@ Read the phase entry in `IMPLEMENTATION_PLAN.md`. Confirm the scope: which files
 created or modified, what is mocked, and what the key test cases are. Raise any
 ambiguities before writing a single line of code.
 
+Mark the phase heading in `IMPLEMENTATION_PLAN.md` with `[started]`, e.g.:
+```
+## Phase 2: Exceptions & Models [started]
+```
+
 ### 2. Write tests & mocks
 Write all tests for the phase first. They must fail (red) at this point — that is the
 goal. If a dependency is not yet implemented, create the minimal stub or mock described
@@ -59,6 +64,11 @@ Run `uv run pre-commit run --all-files`. Fix any ruff lint or formatting issues.
 Do not suppress ruff errors with `# noqa` without a justifying comment.
 
 ### 6. Commit
+Mark the phase heading in `IMPLEMENTATION_PLAN.md` with `[done]`, e.g.:
+```
+## Phase 2: Exceptions & Models [done]
+```
+
 Before writing the commit message, always run `git diff --staged` to review the exact
 changes being committed. Write the message to reflect what actually changed, not what
 was planned.
