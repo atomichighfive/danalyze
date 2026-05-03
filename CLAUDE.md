@@ -63,7 +63,19 @@ Tests from earlier phases must continue to pass (no regressions).
 Run `uv run pre-commit run --all-files`. Fix any ruff lint or formatting issues.
 Do not suppress ruff errors with `# noqa` without a justifying comment.
 
-### 6. Commit
+### 6. UAT
+Determine whether the phase produced behaviour the user can observe in a terminal.
+
+- **If yes:** draft a short UAT plan (numbered steps, each a concrete action + expected
+  result), then present it to the user one step at a time using the `AskUserQuestion`
+  tool. Wait for the user to confirm each step passes before moving on. If a step
+  fails, fix the issue and restart from step 4.
+- **If no** (e.g. the phase only adds pure-logic modules or test infrastructure with no
+  runnable entry point yet): state the rationale clearly and ask the user — via
+  `AskUserQuestion` — whether to skip UAT for this phase. Do not proceed to step 7
+  until the user approves the skip.
+
+### 7. Commit
 Mark the phase heading in `IMPLEMENTATION_PLAN.md` with `[done]`, e.g.:
 ```
 ## Phase 2: Exceptions & Models [done]
