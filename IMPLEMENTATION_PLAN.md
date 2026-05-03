@@ -559,13 +559,172 @@ widgets to re-render. ERROR nodes from permission-denied paths appear inline.
 
 ---
 
+## Phase 12A: State delegation refactor
+
+**Files modified:**
+- `danalyze/tui/app.py` — replace inline `dataclasses.replace()` calls with calls to
+  the pure state functions that already exist in `state.py`
+
+**Scope:** `state.py` already defines `begin_note`, `submit_note`, `cancel_input`,
+`begin_quit`, `begin_save`, `append_input`, `backspace_input`. `app.py` imports them
+but re-implements the same logic inline. This phase deletes the duplicate code in
+`app.py` and delegates to the pure functions instead. The overlay management methods
+(`_open_note_overlay`, `_submit_note`, `_close_overlay`, `_update_pending`,
+`_open_quit_overlay`, `_open_save_overlay`) shrink significantly; `app.py` no longer
+imports `dataclasses`.
+
+**Mocks:** none — existing TUI tests cover all behaviour.
+
+**Key tests:** `tests/test_tui.py` (existing — no new tests needed)
+- All 42 existing TUI tests must continue to pass unchanged after the refactor.
+
+**Commit:** `Phase 12A: Delegate state mutations to pure state.py functions`
+
+---
+
+## Phase 12B: Filesystem parity tests
+
+**Files modified:**
+- `tests/test_filesystem.py` — add parity and real-FS scandir tests
+
+**Scope:** Two groups of new tests; no production code changes.
+
+1. **Parity tests** — construct a real temporary directory tree that mirrors
+   `sample_tree` from `conftest.py` (docs/, downloads/, readme.txt, and a
+   permission-denied private/). Run both `RealFilesystem` and `InMemoryFilesystem`
+   side by side on the same logical tree and assert they return the same entry names,
+   `is_dir` flags, and file sizes from `stat()`. Skip the permission-denied entry on
+   the real FS if the test process cannot actually remove read permission (mark with
+   `pytest.mark.skipif`).
+
+2. **Real-FS scandir tests** — using `tmp_path`, create the same structure and verify
+   that `RealFilesystem.scandir()` returns entries with the correct names and `is_dir`
+   values matching what `sample_tree` would have.
+
+**Mocks:** none — these tests intentionally use the real filesystem.
+
+**Key tests:** `tests/test_filesystem.py`
+- `test_real_scandir_returns_expected_names` — entry names match sample_tree children
+- `test_real_scandir_is_dir_flags_match` — dirs and files have correct `is_dir`
+- `test_real_stat_returns_correct_size` — `stat().st_size` matches written size
+- `test_inmemory_and_real_scandir_same_names` — both FSes return the same names
+- `test_inmemory_and_real_stat_same_size` — both FSes return the same file sizes
+
+**Commit:** `Phase 12B: Filesystem parity tests for RealFilesystem vs InMemoryFilesystem`
+
+---
+
+## Phase 12C: Full-row cursor highlight
+
+**Scope:** The selected entry's reverse-video highlight currently covers only the
+`FileTreePanel` column. The `SizePanel` row at the same index is visually unstyled,
+making it hard to read across the two columns. This phase highlights both sides.
+
+Before implementing, present the following three options to the user and wait for
+approval:
+
+1. **Both columns inverted (recommended)** — `SizePanel._build()` returns a `Rich.text.Text`
+   object (same pattern as `FileTreePanel`) with `style="reverse"` on the selected row.
+   Minimal code change; perfectly consistent with the existing approach.
+
+2. **Right-margin arrow** — the selected row's size entry is prefixed with `▶ `;
+   all other rows are prefixed with two spaces. The `SizePanel` stays a plain string.
+   Adds a visual anchor without colour, but shifts bar alignment slightly.
+
+3. **Full-width underline** — the selected row in both panels gets `style="underline"`
+   instead of reverse. Less visually prominent but avoids the contrast flip.
+
+**Files modified (pending user choice):**
+- `danalyze/tui/widgets.py` — update `SizePanel._build()` (and potentially
+  `FileTreePanel._build()` if option 3 is chosen)
+
+**Mocks:** none
+
+**Key tests:** `tests/test_tui.py`
+- Selected SizePanel row shows styling consistent with chosen option
+- Non-selected SizePanel rows are unstyled
+
+**Commit:** `Phase 12C: Full-row cursor highlight across both panels`
+
+---
+
+## Phase 12D: Inline note text display
+
+**Files modified:**
+- `danalyze/tui/widgets.py` — update `FileTreePanel._build()` to show the actual note
+  text instead of the `[note]` token
+- `tests/test_tui.py` — update tests that assert `"[note]" in text`
+
+**Scope:** Replace `"  [note]"` with the actual note text, truncated at 20 characters
+with a `"..."` suffix if longer (`raw[:17] + "..."` when `len(raw) > 20`). The
+`[error]` tag is unchanged.
+
+Example rendering before/after for a note `"important archive"`:
+```
+before:  > docs/  [note]
+after:   > docs/  important archive
+```
+
+For a note `"this is a very long note indeed"`:
+```
+after:   > docs/  this is a very lon...
+```
+
+**Mocks:** none
+
+**Key tests:** `tests/test_tui.py`
+- `test_file_tree_shows_note_text_inline` — noted entry shows actual note text
+- `test_file_tree_long_note_truncated` — note longer than 20 chars is truncated with `...`
+- `test_file_tree_no_note_token` — `"[note]"` does NOT appear in the rendered text
+- Update `test_type_note_and_submit_saves_note` — assert `"hello" in text` instead of
+  `"[note]" in text`
+- Update `test_file_tree_panel_noted_entry_has_tag` — assert note text appears instead
+  of the tag
+
+**Commit:** `Phase 12D: Show inline note text in FileTreePanel instead of [note] token`
+
+---
+
+## Phase 12E: Export format simplification
+
+**Files modified:**
+- `danalyze/export.py` — replace `build_export_df(notes, nodes)` with
+  `build_notes_df(notes)` that outputs only the two columns the user cares about;
+  `load_notes_from_csv` already requires only `path` and `note` columns so it needs
+  no changes
+- `danalyze/tui/app.py` — update `_submit_save` to call `build_notes_df` (no longer
+  needs to extract `_registry` from the scanner)
+- `tests/test_export.py` — replace `build_export_df` tests with `build_notes_df` tests
+
+**Scope:** The current export includes `size_bytes` and `size_human` columns that are
+redundant (sizes can always be re-scanned). The new export contains exactly two
+columns: `path` and `note`. Only paths that have a non-empty note are written.
+`write_export` is unchanged. `load_notes_from_csv` is unchanged (it already only reads
+`path` and `note`).
+
+**Mocks:** none
+
+**Key tests:** `tests/test_export.py`
+- `test_build_notes_df_has_correct_columns` — DataFrame has exactly `path`, `note`
+- `test_build_notes_df_only_includes_noted_paths` — paths without notes are omitted
+- `test_build_notes_df_empty_notes_returns_empty_df` — empty notes → empty DataFrame
+- `test_roundtrip_write_and_load` — write with `build_notes_df` + `write_export`, then
+  `load_notes_from_csv` recovers the original dict
+- Remove tests for `build_export_df`, `size_bytes`, `size_human` columns
+
+**Commit:** `Phase 12E: Simplify export to notes-only CSV (path + note columns)`
+
+---
+
 ## Phase 13: CLI entry point
 
-**Files created:**
-- `danalyze/__main__.py`
+**Files modified:**
+- `danalyze/__main__.py` — replace the UAT stub created in Phase 9/10 with a full
+  `argparse`-wired entry point
 
-**Scope:** `argparse` wiring, `setup_logging`, optional `-o` pre-load, initial
-`AppState` and `DiskScanner` construction, then `DiskAnalyzerApp(...).run()`.
+**Scope:** `argparse` wiring, `setup_logging`, optional `-o` pre-load (using
+`load_notes_from_csv` which already handles the 2-column format from Phase 12E),
+initial `AppState` and `DiskScanner` construction, then `DiskAnalyzerApp(...).run()`.
 
 **Arguments:**
 - `PATH` — positional, optional, default: `Path.cwd()`
