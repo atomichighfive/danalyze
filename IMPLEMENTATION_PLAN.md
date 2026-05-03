@@ -352,7 +352,7 @@ selected_node(state: AppState) -> FileNode
 
 ---
 
-## Phase 7: Notes and export
+## Phase 7: Notes and export [done]
 
 **Files created:**
 - `danalyze/notes.py`
