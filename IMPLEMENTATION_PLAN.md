@@ -559,7 +559,7 @@ widgets to re-render. ERROR nodes from permission-denied paths appear inline.
 
 ---
 
-## Phase 12A: State delegation refactor
+## Phase 12A: State delegation refactor [done]
 
 **Files modified:**
 - `danalyze/tui/app.py` — replace inline `dataclasses.replace()` calls with calls to

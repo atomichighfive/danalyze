@@ -17,11 +17,18 @@ from danalyze.models import AppMode, FileNode, ScanStatus
 from danalyze.scanner import DiskScanner
 from danalyze.state import (
     AppState,
+    append_input,
+    backspace_input,
+    begin_note,
+    begin_quit,
+    begin_save,
+    cancel_input,
     navigate_down,
     navigate_into,
     navigate_out,
     navigate_up,
     selected_node,
+    submit_note,
 )
 from danalyze.tui.widgets import (
     FileTreePanel,
@@ -170,9 +177,11 @@ class DiskAnalyzerApp(App):
             elif key == "enter":
                 self._submit_note()
             elif key == "backspace":
-                self._update_pending(self._state.pending_input[:-1])
+                self._state = backspace_input(self._state)
+                self._refresh_overlay()
             elif char is not None:
-                self._update_pending(self._state.pending_input + char)
+                self._state = append_input(self._state, char)
+                self._refresh_overlay()
 
         elif mode == AppMode.QUIT_PROMPT:
             if char in ("y", "Y"):
@@ -186,9 +195,11 @@ class DiskAnalyzerApp(App):
             elif key == "enter":
                 await self._submit_save()
             elif key == "backspace":
-                self._update_pending(self._state.pending_input[:-1])
+                self._state = backspace_input(self._state)
+                self._refresh_overlay()
             elif char is not None:
-                self._update_pending(self._state.pending_input + char)
+                self._state = append_input(self._state, char)
+                self._refresh_overlay()
 
     # ------------------------------------------------------------------
     # Actions (bound to arrow keys and r via BINDINGS)
@@ -273,9 +284,7 @@ class DiskAnalyzerApp(App):
         """
         node = selected_node(self._state)
         existing = self._state.notes.get(str(node.path), "")
-        self._state = dataclasses.replace(
-            self._state, mode=AppMode.NOTE_INPUT, pending_input=existing
-        )
+        self._state = dataclasses.replace(begin_note(self._state), pending_input=existing)
         self._overlay = NoteOverlay(self._state)
         self.mount(self._overlay)
 
@@ -285,7 +294,7 @@ class DiskAnalyzerApp(App):
         Side effects:
             Changes mode to QUIT_PROMPT, mounts PromptOverlay.
         """
-        self._state = dataclasses.replace(self._state, mode=AppMode.QUIT_PROMPT)
+        self._state = begin_quit(self._state)
         self._overlay = PromptOverlay(self._state, "Quit? [y/n]", show_input=False)
         self.mount(self._overlay)
 
@@ -293,9 +302,9 @@ class DiskAnalyzerApp(App):
         """Open a PromptOverlay for entering the export CSV filename.
 
         Side effects:
-            Changes mode to SAVE_PROMPT, clears pending_input, mounts PromptOverlay.
+            Changes mode to SAVE_PROMPT, mounts PromptOverlay.
         """
-        self._state = dataclasses.replace(self._state, mode=AppMode.SAVE_PROMPT, pending_input="")
+        self._state = begin_save(self._state)
         self._overlay = PromptOverlay(self._state, "Save to")
         self.mount(self._overlay)
 
@@ -309,19 +318,15 @@ class DiskAnalyzerApp(App):
         if self._overlay is not None:
             self._overlay.remove()
             self._overlay = None
-        self._state = dataclasses.replace(self._state, mode=AppMode.BROWSE, pending_input="")
+        self._state = cancel_input(self._state)
         self._refresh_widgets()
 
-    def _update_pending(self, new_input: str) -> None:
-        """Update pending_input in state and repaint the overlay.
-
-        Args:
-            new_input: New value for pending_input.
+    def _refresh_overlay(self) -> None:
+        """Repaint the current overlay with the latest state.
 
         Side effects:
-            Updates self._state and calls refresh_state on the overlay.
+            Calls refresh_state on the overlay widget if one is mounted.
         """
-        self._state = dataclasses.replace(self._state, pending_input=new_input)
         if self._overlay is not None:
             self._overlay.refresh_state(self._state)
 
@@ -331,17 +336,14 @@ class DiskAnalyzerApp(App):
         An empty pending_input removes the existing note.
 
         Side effects:
-            Updates self._state.notes, closes overlay, refreshes widgets.
+            Updates self._state.notes via submit_note, removes overlay widget,
+            refreshes widgets.
         """
-        node = selected_node(self._state)
-        path_key = str(node.path)
-        notes = dict(self._state.notes)
-        if self._state.pending_input:
-            notes[path_key] = self._state.pending_input
-        else:
-            notes.pop(path_key, None)
-        self._state = dataclasses.replace(self._state, notes=notes)
-        self._close_overlay()
+        self._state = submit_note(self._state, self._state.pending_input)
+        if self._overlay is not None:
+            self._overlay.remove()
+            self._overlay = None
+        self._refresh_widgets()
 
     async def _submit_save(self) -> None:
         """Write the export CSV to the filename in pending_input.
