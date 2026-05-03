@@ -291,7 +291,7 @@ Directories are nested dicts; files are `int` byte sizes. Additional test-contro
 
 ---
 
-## Phase 6: Application state machine
+## Phase 6: Application state machine [done]
 
 **Files created:**
 - `danalyze/state.py`
