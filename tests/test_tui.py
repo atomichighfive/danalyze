@@ -245,3 +245,98 @@ async def test_right_with_real_scanner_shows_children() -> None:
         await pilot.press("right")
         text = app.query_one(FileTreePanel).render().plain
         assert "a.txt" in text or "b.txt" in text
+
+
+# ---------------------------------------------------------------------------
+# Phase 11: r-key scan integration
+# ---------------------------------------------------------------------------
+
+
+def _scan_app(fs, tree_dict):
+    """Build a listed-but-unscanned app from an InMemoryFilesystem spec."""
+    root_path_str = next(iter(tree_dict))
+    root = FileNode(path=Path(root_path_str), name=root_path_str.lstrip("/"), is_dir=True)
+    scanner = DiskScanner(fs)
+    return root, scanner
+
+
+async def _make_scan_app(tree_dict):
+    """Create a DiskAnalyzerApp with real scanner, root already listed."""
+    fs = InMemoryFilesystem(tree_dict)
+    root_path_str = next(iter(tree_dict))
+    root = FileNode(path=Path(root_path_str), name=root_path_str.lstrip("/"), is_dir=True)
+    scanner = DiskScanner(fs)
+    await scanner.list_directory(root)
+    state = AppState(
+        view_root=root,
+        selected_index=0,
+        notes={},
+        mode=AppMode.BROWSE,
+        pending_input="",
+        drive_info=DriveInfo("/dev/sda1", 500 * 1024**3, 200 * 1024**3, 300 * 1024**3, Path("/")),
+        tree=FileTree(root=root),
+    )
+    return DiskAnalyzerApp(state=state, scanner=scanner), fs
+
+
+async def test_r_key_scan_shows_sizes() -> None:
+    """After pressing r, SizePanel should show bar chars instead of '---'."""
+    app, _ = await _make_scan_app({"/root": {"docs": {"a.txt": 100, "b.txt": 200}}})
+    async with app.run_test() as pilot:
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        text = app.query_one(SizePanel).render().plain
+        assert "---" not in text
+        assert "█" in text or "░" in text
+
+
+async def test_r_key_scan_error_dir_shows_exclamation() -> None:
+    """After pressing r, a permission-denied directory gets '!' prefix."""
+    app, fs = await _make_scan_app({"/root": {"private": {}, "file.txt": 512}})
+    fs.set_permission_denied("/root/private")
+    async with app.run_test() as pilot:
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        text = app.query_one(FileTreePanel).render().plain
+        lines = text.splitlines()
+        private_line = next(ln for ln in lines if "private" in ln)
+        assert "!" in private_line
+
+
+async def test_r_key_scan_error_dir_shows_error_in_size_panel() -> None:
+    """After pressing r, a permission-denied directory shows error text in SizePanel."""
+    app, fs = await _make_scan_app({"/root": {"private": {}, "file.txt": 512}})
+    fs.set_permission_denied("/root/private")
+    async with app.run_test() as pilot:
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        text = app.query_one(SizePanel).render().plain
+        assert "permission denied" in text.lower() or "error" in text.lower()
+
+
+async def test_r_key_rescan_reflects_updated_size() -> None:
+    """Pressing r twice after update_file_size shows the new size."""
+    app, fs = await _make_scan_app({"/root": {"file.txt": 100}})
+    async with app.run_test() as pilot:
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        text_before = app.query_one(SizePanel).render().plain
+
+        fs.update_file_size("/root/file.txt", 999_999)
+
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        text_after = app.query_one(SizePanel).render().plain
+
+        assert text_before != text_after
+
+
+async def test_r_key_widgets_update_without_restart() -> None:
+    """Widget content changes after scan — no full app restart required."""
+    app, _ = await _make_scan_app({"/root": {"data.bin": 4096}})
+    async with app.run_test() as pilot:
+        text_before = app.query_one(SizePanel).render().plain
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        text_after = app.query_one(SizePanel).render().plain
+        assert text_before != text_after

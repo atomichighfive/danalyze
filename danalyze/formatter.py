@@ -66,4 +66,5 @@ def format_bar_line(size: int, total: int, bar_width: int) -> str:
         ValueError: If size or total is negative, or bar_width < 1.
     """
     fraction = size / total if total > 0 else 0.0
-    return f"{format_size(size)}  {render_bar(fraction, bar_width)}"
+    size_str = format_size(size).rjust(8)
+    return f"{size_str}  {render_bar(fraction, bar_width)}"

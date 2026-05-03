@@ -499,7 +499,7 @@ in the panel after navigating right, use a real `DiskScanner` backed by `InMemor
 
 ---
 
-## Phase 11: TUI scan integration
+## Phase 11: TUI scan integration [done]
 
 **Files modified:**
 - `danalyze/tui/app.py` — add `r` key binding; wire `on_progress` callback to
