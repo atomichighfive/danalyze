@@ -11,7 +11,7 @@ from textual.containers import Horizontal
 from textual.message import Message
 
 from danalyze.exceptions import ExportError
-from danalyze.export import build_export_df, write_export
+from danalyze.export import build_notes_df, write_export
 from danalyze.logging_config import begin_async_process, get_logger, set_async_process_id
 from danalyze.models import AppMode, FileNode, ScanStatus
 from danalyze.scanner import DiskScanner
@@ -359,9 +359,7 @@ class DiskAnalyzerApp(App):
         if not filename:
             return
         file_path = Path(filename)
-        raw = getattr(self._scanner, "_registry", None)
-        nodes = {str(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
-        df = build_export_df(self._state.notes, nodes)
+        df = build_notes_df(self._state.notes)
         try:
             write_export(df, file_path)
             self._close_overlay()

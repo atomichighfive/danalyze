@@ -7,58 +7,28 @@ from pathlib import Path
 import pandas as pd
 
 from danalyze.exceptions import ExportError
-from danalyze.formatter import format_size
-from danalyze.models import FileNode, ScanStatus
 
 
-def build_export_df(
-    notes: dict[str, str],
-    nodes: dict[str, FileNode],
-) -> pd.DataFrame:
-    """Build a pandas DataFrame from notes and scanned nodes.
-
-    Includes a row for every path that either has a note or has
-    scan_status == DONE. Paths with notes but no matching node (e.g. from a
-    previous session) are included with size_bytes == pd.NA.
+def build_notes_df(notes: dict[str, str]) -> pd.DataFrame:
+    """Build a two-column DataFrame containing only paths that have notes.
 
     Args:
         notes: Mapping of absolute path string to note text.
-        nodes: Mapping of absolute path string to FileNode.
 
     Returns:
-        DataFrame with columns: path, size_bytes, size_human, note.
-        size_bytes is int for DONE nodes, pd.NA otherwise.
-        size_human is a formatted string for DONE nodes, "" otherwise.
-        note is "" when no note exists for that path.
+        DataFrame with columns: path, note.
+        Only rows where note is a non-empty string are included,
+        sorted by path.
     """
-    paths: set[str] = set(notes) | {p for p, n in nodes.items() if n.scan_status == ScanStatus.DONE}
-
-    rows: list[dict] = []
-    for path_str in sorted(paths):
-        node = nodes.get(path_str)
-        is_done = node is not None and node.scan_status == ScanStatus.DONE
-        size_bytes: int | pd._libs.missing.NAType = pd.NA
-        size_human = ""
-        if is_done and node is not None and node.size is not None:
-            size_bytes = node.size
-            size_human = format_size(node.size)
-        rows.append(
-            {
-                "path": path_str,
-                "size_bytes": size_bytes,
-                "size_human": size_human,
-                "note": notes.get(path_str, ""),
-            }
-        )
-
-    return pd.DataFrame(rows, columns=["path", "size_bytes", "size_human", "note"])
+    rows = [{"path": p, "note": n} for p, n in sorted(notes.items()) if n]
+    return pd.DataFrame(rows, columns=["path", "note"])
 
 
 def write_export(df: pd.DataFrame, file_path: Path) -> None:
     """Write a DataFrame to a CSV file.
 
     Args:
-        df: DataFrame to write (as produced by build_export_df).
+        df: DataFrame to write.
         file_path: Destination file path.
 
     Raises:

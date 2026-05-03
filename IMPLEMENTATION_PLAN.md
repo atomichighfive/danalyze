@@ -685,7 +685,7 @@ after:   > docs/  this is a very lon...
 
 ---
 
-## Phase 12E: Export format simplification
+## Phase 12E: Export format simplification [done]
 
 **Files modified:**
 - `danalyze/export.py` — replace `build_export_df(notes, nodes)` with
