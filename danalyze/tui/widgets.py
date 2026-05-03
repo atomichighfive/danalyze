@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual.widgets import Static
 
 from danalyze.formatter import format_bar_line, format_size
@@ -101,18 +102,19 @@ class FileTreePanel(Static):
         self._render_state()
 
     @staticmethod
-    def _build(state: AppState) -> str:
-        """Render the file tree as a plain-text string.
+    def _build(state: AppState) -> Text:
+        """Render the file tree as a Rich Text object with selection highlight.
 
         Args:
             state: Application state to render from.
 
         Returns:
-            Multi-line string with one entry per line.
+            Rich Text with one entry per line; the selected row is highlighted
+            with reverse video.
         """
-        lines: list[str] = []
+        result = Text()
         children = state.view_root.children or []
-        for child in children:
+        for i, child in enumerate(children):
             is_error = child.scan_status == ScanStatus.ERROR
             if is_error:
                 prefix = "!"
@@ -124,8 +126,13 @@ class FileTreePanel(Static):
             name = child.name + ("/" if child.is_dir else "")
             has_note = str(child.path) in state.notes
             tag = "  [note]" if has_note else ("  [error]" if is_error else "")
-            lines.append(f"{prefix} {name}{tag}")
-        return "\n".join(lines)
+            line = f"{prefix} {name}{tag}"
+
+            if i > 0:
+                result.append("\n")
+            style = "reverse" if i == state.selected_index else ""
+            result.append(line, style=style)
+        return result
 
     def _render_state(self) -> None:
         self.update(self._build(self._state))

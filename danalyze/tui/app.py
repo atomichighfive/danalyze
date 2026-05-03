@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 
@@ -26,6 +25,13 @@ class DiskAnalyzerApp(App):
         state: Initial application state.
         scanner: DiskScanner instance used for directory listing and size scanning.
     """
+
+    BINDINGS = [
+        ("up", "nav_up", "Navigate up"),
+        ("down", "nav_down", "Navigate down"),
+        ("right", "nav_right", "Enter directory"),
+        ("left", "nav_left", "Go back"),
+    ]
 
     CSS = """
     Screen {
@@ -64,33 +70,47 @@ class DiskAnalyzerApp(App):
         yield StatusBar(self._state)
 
     # ------------------------------------------------------------------
-    # Key handling
+    # Actions (bound to arrow keys via BINDINGS)
     # ------------------------------------------------------------------
 
-    async def on_key(self, event: events.Key) -> None:
-        """Route arrow keys to the appropriate state transition.
-
-        Args:
-            event: The key event from Textual.
+    def action_nav_up(self) -> None:
+        """Move selection up one entry.
 
         Side effects:
             Updates self._state and refreshes all widgets.
         """
-        key = event.key
-        if key == "up":
-            self._state = navigate_up(self._state)
-            self._refresh_widgets()
-        elif key == "down":
-            self._state = navigate_down(self._state)
-            self._refresh_widgets()
-        elif key == "right":
-            await self._navigate_right()
-        elif key == "left":
-            self._state = navigate_out(self._state)
-            self._refresh_widgets()
+        self._state = navigate_up(self._state)
+        self._refresh_widgets()
+
+    def action_nav_down(self) -> None:
+        """Move selection down one entry.
+
+        Side effects:
+            Updates self._state and refreshes all widgets.
+        """
+        self._state = navigate_down(self._state)
+        self._refresh_widgets()
+
+    async def action_nav_right(self) -> None:
+        """Enter the selected directory.
+
+        Side effects:
+            May mutate the selected FileNode via list_directory.
+            Updates self._state and refreshes all widgets.
+        """
+        await self._navigate_right()
+
+    def action_nav_left(self) -> None:
+        """Go back to the parent directory.
+
+        Side effects:
+            Updates self._state and refreshes all widgets.
+        """
+        self._state = navigate_out(self._state)
+        self._refresh_widgets()
 
     async def _navigate_right(self) -> None:
-        """Handle right-arrow: list directory then navigate into it.
+        """List directory then navigate into it.
 
         Calls scanner.list_directory on the selected dir (skips ERROR nodes),
         then applies navigate_into to update the view root.
