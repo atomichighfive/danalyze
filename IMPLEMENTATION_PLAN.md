@@ -173,7 +173,7 @@ repos:
 
 ---
 
-## Phase 3: Formatter
+## Phase 3: Formatter [done]
 
 **Files created:**
 - `danalyze/formatter.py`
