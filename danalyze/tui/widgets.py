@@ -249,3 +249,115 @@ class StatusBar(Static):
             state: New application state.
         """
         self._state = state
+
+
+class NoteOverlay(Static):
+    """Bottom overlay for entering or editing a note on the selected entry.
+
+    Displays the current pending_input from AppState with a trailing cursor.
+
+    Args:
+        state: Current application state (pending_input is used as initial text).
+    """
+
+    DEFAULT_CSS = "NoteOverlay { height: 3; dock: bottom; border: solid $accent; padding: 0 1; }"
+
+    def __init__(self, state: AppState) -> None:
+        """Initialise the note overlay.
+
+        Args:
+            state: Current application state.
+        """
+        super().__init__(markup=False)
+        self._state = state
+
+    def on_mount(self) -> None:
+        """Render initial content when mounted.
+
+        Side effects:
+            Calls update() with the formatted note prompt.
+        """
+        self._render_state()
+
+    def refresh_state(self, state: AppState) -> None:
+        """Update the overlay with new state (e.g. after each keystroke).
+
+        Args:
+            state: New application state.
+
+        Side effects:
+            Calls update() to repaint the widget.
+        """
+        self._state = state
+        self._render_state()
+
+    def _render_state(self) -> None:
+        self.update(f"Note: {self._state.pending_input}_")
+
+
+class PromptOverlay(Static):
+    """Bottom overlay for quit confirm or file-save prompts.
+
+    When show_input is True, displays pending_input from AppState.
+    When show_input is False (quit prompt), displays only the prompt text.
+    An optional error line is shown below the prompt.
+
+    Args:
+        state: Current application state.
+        prompt: Label text shown before the input field.
+        show_input: If True, show pending_input and cursor. Default True.
+    """
+
+    DEFAULT_CSS = "PromptOverlay { height: 3; dock: bottom; border: solid $accent; padding: 0 1; }"
+
+    def __init__(self, state: AppState, prompt: str, show_input: bool = True) -> None:
+        """Initialise the prompt overlay.
+
+        Args:
+            state: Current application state.
+            prompt: Label shown to the user.
+            show_input: Whether to display an editable input field.
+        """
+        super().__init__(markup=False)
+        self._state = state
+        self._prompt = prompt
+        self._show_input = show_input
+        self._error = ""
+
+    def on_mount(self) -> None:
+        """Render initial content when mounted.
+
+        Side effects:
+            Calls update() with the formatted prompt.
+        """
+        self._render_state()
+
+    def set_error(self, error: str) -> None:
+        """Display an error message below the prompt.
+
+        Args:
+            error: Error text to display.
+
+        Side effects:
+            Calls update() to repaint the widget.
+        """
+        self._error = error
+        self._render_state()
+
+    def refresh_state(self, state: AppState) -> None:
+        """Update the overlay with new state (e.g. after each keystroke).
+
+        Args:
+            state: New application state.
+
+        Side effects:
+            Calls update() to repaint the widget.
+        """
+        self._state = state
+        self._render_state()
+
+    def _render_state(self) -> None:
+        text = f"{self._prompt}: {self._state.pending_input}_" if self._show_input else self._prompt
+        if self._error:
+            text += f"\n{self._error}"
+        self.update(text)

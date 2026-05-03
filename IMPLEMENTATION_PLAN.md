@@ -523,7 +523,7 @@ widgets to re-render. ERROR nodes from permission-denied paths appear inline.
 
 ---
 
-## Phase 12: TUI overlays
+## Phase 12: TUI overlays [done]
 
 **Files modified:**
 - `danalyze/tui/widgets.py` — add `NoteOverlay`, `PromptOverlay`

@@ -10,7 +10,14 @@ from danalyze.models import AppMode, DriveInfo, FileNode, FileTree
 from danalyze.scanner import DiskScanner
 from danalyze.state import AppState
 from danalyze.tui.app import DiskAnalyzerApp
-from danalyze.tui.widgets import FileTreePanel, InfoBar, SizePanel, StatusBar
+from danalyze.tui.widgets import (
+    FileTreePanel,
+    InfoBar,
+    NoteOverlay,
+    PromptOverlay,
+    SizePanel,
+    StatusBar,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -340,3 +347,149 @@ async def test_r_key_widgets_update_without_restart() -> None:
         await app.workers.wait_for_complete()
         text_after = app.query_one(SizePanel).render().plain
         assert text_before != text_after
+
+
+# ---------------------------------------------------------------------------
+# Phase 12: TUI overlays
+# ---------------------------------------------------------------------------
+
+
+async def test_enter_mounts_note_overlay(base_state) -> None:
+    """Pressing enter in BROWSE mode mounts a NoteOverlay."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        assert app.query(NoteOverlay)
+
+
+async def test_type_note_and_submit_saves_note(base_state, sample_tree) -> None:
+    """Typing a note and pressing enter saves it and shows [note] tag."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        for char in "hello":
+            await pilot.press(char)
+        await pilot.press("enter")
+        assert not app.query(NoteOverlay)
+        text = app.query_one(FileTreePanel).render().plain
+        assert "[note]" in text
+
+
+async def test_enter_on_noted_entry_prefills_overlay(base_state, sample_tree) -> None:
+    """Opening note overlay on an already-noted entry pre-fills with existing text."""
+    path_key = str(sample_tree.children[0].path)
+    app = _make_app(base_state, notes={path_key: "existing"})
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        text = app.query_one(NoteOverlay).render().plain
+        assert "existing" in text
+
+
+async def test_empty_submit_removes_note(base_state, sample_tree) -> None:
+    """Submitting an empty note removes it and hides the [note] tag."""
+    path_key = str(sample_tree.children[0].path)
+    app = _make_app(base_state, notes={path_key: "to remove"})
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        for _ in "to remove":
+            await pilot.press("backspace")
+        await pilot.press("enter")
+        text = app.query_one(FileTreePanel).render().plain
+        assert "[note]" not in text
+
+
+async def test_escape_cancels_note_without_saving(base_state) -> None:
+    """Escape inside NoteOverlay dismisses it without saving."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        for char in "typed":
+            await pilot.press(char)
+        await pilot.press("escape")
+        assert not app.query(NoteOverlay)
+        text = app.query_one(FileTreePanel).render().plain
+        assert "[note]" not in text
+
+
+async def test_q_mounts_quit_prompt(base_state) -> None:
+    """Pressing q in BROWSE mode mounts a PromptOverlay for quit."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("q")
+        assert app.query(PromptOverlay)
+
+
+async def test_y_in_quit_prompt_exits_app(base_state) -> None:
+    """Pressing y inside the quit PromptOverlay exits the app cleanly."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("q")
+        await pilot.press("y")
+    # reaching here means the app exited without error
+
+
+async def test_n_in_quit_prompt_dismisses_overlay(base_state) -> None:
+    """Pressing n inside the quit PromptOverlay dismisses it."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("q")
+        await pilot.press("n")
+        assert not app.query(PromptOverlay)
+
+
+async def test_escape_in_quit_prompt_dismisses_overlay(base_state) -> None:
+    """Pressing escape inside the quit PromptOverlay dismisses it."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("q")
+        await pilot.press("escape")
+        assert not app.query(PromptOverlay)
+
+
+async def test_w_mounts_save_prompt(base_state) -> None:
+    """Pressing w in BROWSE mode mounts a PromptOverlay for file save."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("w")
+        assert app.query(PromptOverlay)
+
+
+async def test_save_new_file_creates_file(base_state, tmp_path) -> None:
+    """Typing a new filename and pressing enter creates the file and dismisses the overlay."""
+    app = _make_app(base_state)
+    filepath = tmp_path / "out.csv"
+    async with app.run_test() as pilot:
+        await pilot.press("w")
+        for char in str(filepath):
+            await pilot.press(char)
+        await pilot.press("enter")
+        assert not app.query(PromptOverlay)
+        assert filepath.exists()
+
+
+async def test_save_existing_file_shows_error_and_stays_open(base_state, tmp_path) -> None:
+    """Typing an existing filename shows an error and keeps the overlay open."""
+    app = _make_app(base_state)
+    filepath = tmp_path / "existing.csv"
+    filepath.write_text("already here")
+    async with app.run_test() as pilot:
+        await pilot.press("w")
+        for char in str(filepath):
+            await pilot.press(char)
+        await pilot.press("enter")
+        assert app.query(PromptOverlay)
+        text = app.query_one(PromptOverlay).render().plain
+        assert "exist" in text.lower() or "error" in text.lower()
+
+
+async def test_escape_in_save_prompt_dismisses_without_writing(base_state, tmp_path) -> None:
+    """Escape inside the save PromptOverlay dismisses it without writing any file."""
+    app = _make_app(base_state)
+    filepath = tmp_path / "never.csv"
+    async with app.run_test() as pilot:
+        await pilot.press("w")
+        for char in str(filepath):
+            await pilot.press(char)
+        await pilot.press("escape")
+        assert not app.query(PromptOverlay)
+        assert not filepath.exists()

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import dataclasses
+from pathlib import Path
+
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.message import Message
 
+from danalyze.exceptions import ExportError
+from danalyze.export import build_export_df, write_export
 from danalyze.logging_config import begin_async_process, get_logger, set_async_process_id
-from danalyze.models import FileNode, ScanStatus
+from danalyze.models import AppMode, FileNode, ScanStatus
 from danalyze.scanner import DiskScanner
 from danalyze.state import (
     AppState,
@@ -17,7 +23,14 @@ from danalyze.state import (
     navigate_up,
     selected_node,
 )
-from danalyze.tui.widgets import FileTreePanel, InfoBar, SizePanel, StatusBar
+from danalyze.tui.widgets import (
+    FileTreePanel,
+    InfoBar,
+    NoteOverlay,
+    PromptOverlay,
+    SizePanel,
+    StatusBar,
+)
 
 log = get_logger(__name__)
 
@@ -73,6 +86,7 @@ class DiskAnalyzerApp(App):
         super().__init__()
         self._state = state
         self._scanner = scanner
+        self._overlay: NoteOverlay | PromptOverlay | None = None
 
     def on_mount(self) -> None:
         """Wire the scanner's on_progress callback to post ScanProgress messages.
@@ -102,7 +116,82 @@ class DiskAnalyzerApp(App):
         yield StatusBar(self._state)
 
     # ------------------------------------------------------------------
-    # Actions (bound to keys via BINDINGS)
+    # Key routing
+    # ------------------------------------------------------------------
+
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        """Block navigation/scan bindings when an overlay is open.
+
+        Args:
+            action: Name of the action being checked.
+            parameters: Tuple of action parameters (unused).
+
+        Returns:
+            False to block the action when not in BROWSE mode; True otherwise.
+        """
+        if self._state.mode != AppMode.BROWSE and action in (
+            "nav_up",
+            "nav_down",
+            "nav_right",
+            "nav_left",
+            "scan",
+        ):
+            return False
+        return True
+
+    async def on_key(self, event: events.Key) -> None:
+        """Handle overlay input and BROWSE-mode shortcut keys.
+
+        Arrow keys and r are handled via BINDINGS. This handler manages
+        overlay text input, overlay dismissal, and the q/w/enter shortcuts.
+
+        Args:
+            event: The key event from Textual.
+
+        Side effects:
+            May open or dismiss overlays, update pending_input, save notes,
+            write CSV exports, or exit the app.
+        """
+        key = event.key
+        char = event.character
+        mode = self._state.mode
+
+        if mode == AppMode.BROWSE:
+            if key == "enter":
+                self._open_note_overlay()
+            elif key == "q":
+                self._open_quit_overlay()
+            elif key == "w":
+                self._open_save_overlay()
+
+        elif mode == AppMode.NOTE_INPUT:
+            if key == "escape":
+                self._close_overlay()
+            elif key == "enter":
+                self._submit_note()
+            elif key == "backspace":
+                self._update_pending(self._state.pending_input[:-1])
+            elif char is not None:
+                self._update_pending(self._state.pending_input + char)
+
+        elif mode == AppMode.QUIT_PROMPT:
+            if char in ("y", "Y"):
+                self.exit()
+            elif char in ("n", "N") or key == "escape":
+                self._close_overlay()
+
+        elif mode == AppMode.SAVE_PROMPT:
+            if key == "escape":
+                self._close_overlay()
+            elif key == "enter":
+                await self._submit_save()
+            elif key == "backspace":
+                self._update_pending(self._state.pending_input[:-1])
+            elif char is not None:
+                self._update_pending(self._state.pending_input + char)
+
+    # ------------------------------------------------------------------
+    # Actions (bound to arrow keys and r via BINDINGS)
     # ------------------------------------------------------------------
 
     def action_nav_up(self) -> None:
@@ -172,6 +261,113 @@ class DiskAnalyzerApp(App):
         self._refresh_widgets()
 
     # ------------------------------------------------------------------
+    # Overlay management
+    # ------------------------------------------------------------------
+
+    def _open_note_overlay(self) -> None:
+        """Open NoteOverlay pre-filled with any existing note for the selected entry.
+
+        Side effects:
+            Changes mode to NOTE_INPUT, sets pending_input to the existing note,
+            mounts NoteOverlay.
+        """
+        node = selected_node(self._state)
+        existing = self._state.notes.get(str(node.path), "")
+        self._state = dataclasses.replace(
+            self._state, mode=AppMode.NOTE_INPUT, pending_input=existing
+        )
+        self._overlay = NoteOverlay(self._state)
+        self.mount(self._overlay)
+
+    def _open_quit_overlay(self) -> None:
+        """Open a PromptOverlay asking the user to confirm quit.
+
+        Side effects:
+            Changes mode to QUIT_PROMPT, mounts PromptOverlay.
+        """
+        self._state = dataclasses.replace(self._state, mode=AppMode.QUIT_PROMPT)
+        self._overlay = PromptOverlay(self._state, "Quit? [y/n]", show_input=False)
+        self.mount(self._overlay)
+
+    def _open_save_overlay(self) -> None:
+        """Open a PromptOverlay for entering the export CSV filename.
+
+        Side effects:
+            Changes mode to SAVE_PROMPT, clears pending_input, mounts PromptOverlay.
+        """
+        self._state = dataclasses.replace(self._state, mode=AppMode.SAVE_PROMPT, pending_input="")
+        self._overlay = PromptOverlay(self._state, "Save to")
+        self.mount(self._overlay)
+
+    def _close_overlay(self) -> None:
+        """Dismiss the current overlay and return to BROWSE mode.
+
+        Side effects:
+            Removes the overlay widget, resets mode and pending_input,
+            refreshes main widgets.
+        """
+        if self._overlay is not None:
+            self._overlay.remove()
+            self._overlay = None
+        self._state = dataclasses.replace(self._state, mode=AppMode.BROWSE, pending_input="")
+        self._refresh_widgets()
+
+    def _update_pending(self, new_input: str) -> None:
+        """Update pending_input in state and repaint the overlay.
+
+        Args:
+            new_input: New value for pending_input.
+
+        Side effects:
+            Updates self._state and calls refresh_state on the overlay.
+        """
+        self._state = dataclasses.replace(self._state, pending_input=new_input)
+        if self._overlay is not None:
+            self._overlay.refresh_state(self._state)
+
+    def _submit_note(self) -> None:
+        """Save or delete the note for the selected entry and close the overlay.
+
+        An empty pending_input removes the existing note.
+
+        Side effects:
+            Updates self._state.notes, closes overlay, refreshes widgets.
+        """
+        node = selected_node(self._state)
+        path_key = str(node.path)
+        notes = dict(self._state.notes)
+        if self._state.pending_input:
+            notes[path_key] = self._state.pending_input
+        else:
+            notes.pop(path_key, None)
+        self._state = dataclasses.replace(self._state, notes=notes)
+        self._close_overlay()
+
+    async def _submit_save(self) -> None:
+        """Write the export CSV to the filename in pending_input.
+
+        On success, dismisses the overlay. If the file already exists or any
+        other I/O error occurs, shows the error in the overlay and stays open.
+
+        Side effects:
+            May create a file on disk.
+            May call overlay.set_error() to display an error message.
+        """
+        filename = self._state.pending_input.strip()
+        if not filename:
+            return
+        file_path = Path(filename)
+        raw = getattr(self._scanner, "_registry", None)
+        nodes = {str(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
+        df = build_export_df(self._state.notes, nodes)
+        try:
+            write_export(df, file_path)
+            self._close_overlay()
+        except ExportError as exc:
+            if self._overlay is not None and isinstance(self._overlay, PromptOverlay):
+                self._overlay.set_error(str(exc))
+
+    # ------------------------------------------------------------------
     # Workers
     # ------------------------------------------------------------------
 
@@ -217,7 +413,7 @@ class DiskAnalyzerApp(App):
         """Push the current state to all widgets.
 
         Side effects:
-            Calls refresh_state() on every panel widget.
+            Calls refresh_state() on every panel widget and the current overlay.
         """
         self.query_one(InfoBar).refresh_state(self._state)
         self.query_one(FileTreePanel).refresh_state(self._state)
