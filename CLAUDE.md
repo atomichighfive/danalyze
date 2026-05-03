@@ -10,22 +10,55 @@ See ARCHITECTURE.md for full design documentation.
 uv sync --all-extras
 ```
 
-## Common Commands
-```bash
-# Run the app
-uv run python -m danalyze [PATH] [--debug]
+## Running the App
 
-# Run all tests
+```bash
+# Start in the current directory
+uv run python -m danalyze
+
+# Start at a specific path
+uv run python -m danalyze /some/path
+
+# Enable debug logging (writes to danalyze.log)
+uv run python -m danalyze --debug
+
+# Specify a custom log file (only meaningful with --debug)
+uv run python -m danalyze --debug --log-file /tmp/myrun.log
+
+# Pre-load notes from a previous export CSV
+uv run python -m danalyze -o previous_export.csv
+
+# Combine flags
+uv run python -m danalyze /some/path --debug -o notes.csv
+```
+
+## Common Development Commands
+
+```bash
+# Install all dependencies (including dev extras)
+uv sync --all-extras
+
+# Run the full test suite
 uv run pytest
 
-# Run with coverage
+# Run with coverage report
 uv run pytest --cov=danalyze --cov-report=term-missing
 
-# Run only unit tests (no TUI)
+# Run only unit tests (skip TUI integration tests)
 uv run pytest tests/ -k "not test_tui"
 
-# Run TUI integration tests
+# Run TUI integration tests only
 uv run pytest tests/test_tui.py
+
+# Run a single test file
+uv run pytest tests/test_scanner.py -v
+
+# Run linter and formatter
+uv run ruff check .
+uv run ruff format .
+
+# Run all pre-commit hooks against every file
+uv run pre-commit run --all-files
 ```
 
 ## Development Workflow
