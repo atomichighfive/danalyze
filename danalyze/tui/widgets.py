@@ -7,12 +7,12 @@ from textual.widgets import Static
 
 from danalyze.formatter import format_size, render_bar
 from danalyze.models import ScanStatus
-from danalyze.state import AppState
+from danalyze.state import AppState, sorted_children
 
 _BAR_WIDTH = 12
 
 _STATUS_HINT = (
-    "[up/down] navigate  [right] enter dir  [left] back  [r] scan  "
+    "[up/down] navigate  [right] enter dir  [left] back  [r] scan  [s] sort  "
     "[enter] note  [q] quit  [w] write"
 )
 
@@ -122,7 +122,7 @@ class FileTreePanel(Static):
             with reverse video.
         """
         result = Text()
-        children = state.view_root.children or []
+        children = sorted_children(state)
         for i, child in enumerate(children):
             is_error = child.scan_status == ScanStatus.ERROR
             if is_error:
@@ -215,7 +215,7 @@ class SizePanel(Static):
             Rich Text with one size entry per line; the selected row is highlighted
             with reverse video, matching the FileTreePanel highlight pattern.
         """
-        children = state.view_root.children or []
+        children = sorted_children(state)
         done_sizes = [
             c.size for c in children if c.scan_status == ScanStatus.DONE and c.size is not None
         ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from danalyze.exceptions import DiskAnalyzerError, ExportError, NavigationError, ScanError
-from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus
+from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus, SortMode
 
 
 def make_node(
@@ -144,3 +144,18 @@ class TestEnums:
     def test_app_mode_has_expected_members(self):
         names = {m.name for m in AppMode}
         assert names == {"BROWSE", "NOTE_INPUT", "QUIT_PROMPT", "SAVE_PROMPT"}
+
+
+class TestSortMode:
+    def test_alpha_string_value(self):
+        assert SortMode.ALPHA == "alpha"
+
+    def test_size_string_value(self):
+        assert SortMode.SIZE == "size"
+
+    def test_sort_mode_has_exactly_two_members(self):
+        assert set(SortMode) == {SortMode.ALPHA, SortMode.SIZE}
+
+    def test_sort_mode_is_str(self):
+        assert isinstance(SortMode.ALPHA, str)
+        assert isinstance(SortMode.SIZE, str)

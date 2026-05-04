@@ -12,7 +12,7 @@ both the `FileTreePanel` and the `SizePanel` (rows stay aligned).
 
 ---
 
-## Phase 1: SortMode model, AppState field, toggle_sort function
+## Phase 1: SortMode model, AppState field, toggle_sort function [done]
 
 **Files modified:**
 - `danalyze/models.py` — add `SortMode(StrEnum)` with values `ALPHA` and `SIZE`
@@ -44,7 +44,7 @@ both the `FileTreePanel` and the `SizePanel` (rows stay aligned).
 
 ---
 
-## Phase 2: TUI sort application and `s` key binding
+## Phase 2: TUI sort application and `s` key binding [done]
 
 **Files modified:**
 - `danalyze/tui/widgets.py` — replace `state.view_root.children or []` in both

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus
+from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus, SortMode
 
 
 @dataclass
@@ -22,6 +22,7 @@ class AppState:
         pending_input: Text accumulated while the user is typing.
         drive_info: Disk usage figures for the top info bar.
         tree: Full FileTree needed for upward navigation (navigate_out).
+        sort_mode: Current sort order applied to the file tree panel.
     """
 
     view_root: FileNode
@@ -31,6 +32,7 @@ class AppState:
     pending_input: str
     drive_info: DriveInfo
     tree: FileTree
+    sort_mode: SortMode = SortMode.ALPHA
 
 
 # ---------------------------------------------------------------------------
@@ -45,9 +47,9 @@ def selected_node(state: AppState) -> FileNode:
         state: Current application state.
 
     Returns:
-        The FileNode at state.view_root.children[state.selected_index].
+        The FileNode at sorted_children(state)[state.selected_index].
     """
-    return state.view_root.children[state.selected_index]  # type: ignore[index]
+    return sorted_children(state)[state.selected_index]
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +124,9 @@ def navigate_out(state: AppState) -> AppState:
     parent = ancestors[-1]
     if parent.children is None:
         return state
+    parent_state = replace(state, view_root=parent)
     idx = next(
-        (i for i, child in enumerate(parent.children) if child is state.view_root),
+        (i for i, child in enumerate(sorted_children(parent_state)) if child is state.view_root),
         0,
     )
     return replace(state, view_root=parent, selected_index=idx)
@@ -240,3 +243,39 @@ def backspace_input(state: AppState) -> AppState:
         New AppState with the last character removed from pending_input.
     """
     return replace(state, pending_input=state.pending_input[:-1])
+
+
+# ---------------------------------------------------------------------------
+# Sort
+# ---------------------------------------------------------------------------
+
+
+def toggle_sort(state: AppState) -> AppState:
+    """Cycle the sort mode between ALPHA and SIZE.
+
+    Args:
+        state: Current application state.
+
+    Returns:
+        New AppState with sort_mode toggled between SortMode.ALPHA and SortMode.SIZE.
+    """
+    new_mode = SortMode.SIZE if state.sort_mode == SortMode.ALPHA else SortMode.ALPHA
+    return replace(state, sort_mode=new_mode)
+
+
+def sorted_children(state: AppState) -> list[FileNode]:
+    """Return view_root.children in the order dictated by state.sort_mode.
+
+    Args:
+        state: Current application state.
+
+    Returns:
+        Sorted list of FileNode children. In ALPHA mode, sorted by name
+        case-insensitively. In SIZE mode, sorted by size descending with
+        unscanned entries (size is None) placed last.
+        Returns an empty list when view_root.children is None.
+    """
+    children = state.view_root.children or []
+    if state.sort_mode == SortMode.ALPHA:
+        return sorted(children, key=lambda c: c.name.lower())
+    return sorted(children, key=lambda c: (c.size is None, -(c.size or 0), c.name.lower()))

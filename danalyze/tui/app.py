@@ -29,6 +29,7 @@ from danalyze.state import (
     navigate_up,
     selected_node,
     submit_note,
+    toggle_sort,
 )
 from danalyze.tui.widgets import (
     FileTreePanel,
@@ -170,6 +171,9 @@ class DiskAnalyzerApp(App):
                 self._open_quit_overlay()
             elif key == "w":
                 self._open_save_overlay()
+            elif key == "s":
+                self._state = toggle_sort(self._state)
+                self._refresh_widgets()
 
         elif mode == AppMode.NOTE_INPUT:
             if key == "escape":

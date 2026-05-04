@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from danalyze.models import AppMode, FileNode, ScanStatus
+from danalyze.models import AppMode, FileNode, ScanStatus, SortMode
 from danalyze.state import (
     AppState,
     append_input,
@@ -20,7 +20,9 @@ from danalyze.state import (
     navigate_out,
     navigate_up,
     selected_node,
+    sorted_children,
     submit_note,
+    toggle_sort,
 )
 
 # ---------------------------------------------------------------------------
@@ -286,16 +288,16 @@ def test_backspace_input_noop_when_empty(base_state) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_selected_node_returns_correct_child(base_state, sample_tree) -> None:
+def test_selected_node_returns_correct_child(base_state) -> None:
     state = base_state(selected_index=2)
     node = selected_node(state)
-    assert node is sample_tree.children[2]
+    assert node is sorted_children(state)[2]
 
 
-def test_selected_node_at_index_zero(base_state, sample_tree) -> None:
+def test_selected_node_at_index_zero(base_state) -> None:
     state = base_state(selected_index=0)
     node = selected_node(state)
-    assert node is sample_tree.children[0]
+    assert node is sorted_children(state)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -329,3 +331,112 @@ def test_submit_note_returns_new_instance(base_state) -> None:
     state = begin_note(base_state())
     new_state = submit_note(state, "text")
     assert id(state) != id(new_state)
+
+
+# ---------------------------------------------------------------------------
+# toggle_sort
+# ---------------------------------------------------------------------------
+
+
+def test_toggle_sort_alpha_to_size(base_state) -> None:
+    state = base_state(sort_mode=SortMode.ALPHA)
+    new_state = toggle_sort(state)
+    assert new_state.sort_mode == SortMode.SIZE
+
+
+def test_toggle_sort_size_to_alpha(base_state) -> None:
+    state = base_state(sort_mode=SortMode.SIZE)
+    new_state = toggle_sort(state)
+    assert new_state.sort_mode == SortMode.ALPHA
+
+
+def test_toggle_sort_returns_new_instance(base_state) -> None:
+    state = base_state(sort_mode=SortMode.ALPHA)
+    new_state = toggle_sort(state)
+    assert id(state) != id(new_state)
+
+
+def test_toggle_sort_does_not_mutate_original(base_state) -> None:
+    state = base_state(sort_mode=SortMode.ALPHA)
+    toggle_sort(state)
+    assert state.sort_mode == SortMode.ALPHA
+
+
+# ---------------------------------------------------------------------------
+# sorted_children
+# ---------------------------------------------------------------------------
+
+
+def test_sorted_children_alpha_order(base_state, sample_tree) -> None:
+    # sample_tree children: docs, downloads, readme.txt, private
+    # alpha order: docs, downloads, private, readme.txt
+    state = base_state(sort_mode=SortMode.ALPHA)
+    result = sorted_children(state)
+    names = [c.name for c in result]
+    assert names == sorted(names, key=str.lower)
+
+
+def test_sorted_children_size_order_largest_first(base_state) -> None:
+    from danalyze.models import FileTree
+
+    big = FileNode(
+        path=Path("/r/big"), name="big", is_dir=False, size=1000, scan_status=ScanStatus.DONE
+    )
+    small = FileNode(
+        path=Path("/r/small"),
+        name="small",
+        is_dir=False,
+        size=100,
+        scan_status=ScanStatus.DONE,
+    )
+    root = FileNode(path=Path("/r"), name="r", is_dir=True, children=[small, big])
+    state = base_state(view_root=root, sort_mode=SortMode.SIZE, tree=FileTree(root=root))
+    result = sorted_children(state)
+    assert result[0].name == "big"
+    assert result[1].name == "small"
+
+
+def test_sorted_children_size_order_unscanned_last(base_state) -> None:
+    from danalyze.models import FileTree
+
+    sized = FileNode(
+        path=Path("/r/sized"),
+        name="sized",
+        is_dir=False,
+        size=500,
+        scan_status=ScanStatus.DONE,
+    )
+    unsized = FileNode(
+        path=Path("/r/unsized"),
+        name="unsized",
+        is_dir=False,
+        scan_status=ScanStatus.UNSCANNED,
+    )
+    root = FileNode(path=Path("/r"), name="r", is_dir=True, children=[unsized, sized])
+    state = base_state(view_root=root, sort_mode=SortMode.SIZE, tree=FileTree(root=root))
+    result = sorted_children(state)
+    assert result[0].name == "sized"
+    assert result[1].name == "unsized"
+
+
+def test_sorted_children_size_mode_before_scan_is_alpha_order(base_state) -> None:
+    from danalyze.models import FileTree
+
+    zebra = FileNode(path=Path("/r/zebra"), name="zebra", is_dir=False)
+    apple = FileNode(path=Path("/r/apple"), name="apple", is_dir=False)
+    mango = FileNode(path=Path("/r/mango"), name="mango", is_dir=False)
+    root = FileNode(path=Path("/r"), name="r", is_dir=True, children=[zebra, apple, mango])
+    state = base_state(view_root=root, sort_mode=SortMode.SIZE, tree=FileTree(root=root))
+    result = sorted_children(state)
+    assert [c.name for c in result] == ["apple", "mango", "zebra"]
+
+
+def test_sorted_children_returns_empty_when_children_none(base_state, sample_tree) -> None:
+    no_children = FileNode(path=Path("/empty"), name="empty", is_dir=True, children=None)
+    from danalyze.models import FileTree
+
+    state = base_state(
+        view_root=no_children, sort_mode=SortMode.ALPHA, tree=FileTree(root=no_children)
+    )
+    result = sorted_children(state)
+    assert result == []

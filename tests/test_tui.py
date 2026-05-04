@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from danalyze.filesystem import InMemoryFilesystem
-from danalyze.models import AppMode, DriveInfo, FileNode, FileTree
+from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, SortMode
 from danalyze.scanner import DiskScanner
 from danalyze.state import AppState
 from danalyze.tui.app import DiskAnalyzerApp
@@ -553,3 +553,84 @@ async def test_file_tree_no_note_token(base_state, sample_tree) -> None:
     async with app.run_test():
         text = app.query_one(FileTreePanel).render().plain
         assert "[note]" not in text
+
+
+# ---------------------------------------------------------------------------
+# Phase: sort toggle
+# ---------------------------------------------------------------------------
+
+
+async def test_s_key_changes_sort_mode_to_size(base_state) -> None:
+    """Pressing s in BROWSE mode switches sort_mode to SIZE."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("s")
+        assert app._state.sort_mode == SortMode.SIZE
+
+
+async def test_s_key_twice_returns_to_alpha(base_state) -> None:
+    """Pressing s twice returns sort_mode to ALPHA."""
+    app = _make_app(base_state)
+    async with app.run_test() as pilot:
+        await pilot.press("s")
+        await pilot.press("s")
+        assert app._state.sort_mode == SortMode.ALPHA
+
+
+async def test_alpha_mode_file_tree_renders_in_name_order() -> None:
+    """In ALPHA mode the file tree renders entries sorted by name."""
+    fs = InMemoryFilesystem({"/root": {"zebra": {}, "apple": {}, "mango": {}}})
+    root = FileNode(path=Path("/root"), name="root", is_dir=True)
+    scanner = DiskScanner(fs)
+    await scanner.list_directory(root)
+    state = AppState(
+        view_root=root,
+        selected_index=0,
+        notes={},
+        mode=AppMode.BROWSE,
+        pending_input="",
+        drive_info=DriveInfo("/dev/sda1", 500 * 1024**3, 200 * 1024**3, 300 * 1024**3, Path("/")),
+        tree=FileTree(root=root),
+    )
+    app = DiskAnalyzerApp(state=state, scanner=scanner)
+    async with app.run_test():
+        text = app.query_one(FileTreePanel).render().plain
+        names = [ln.strip().lstrip(">! ").rstrip("/") for ln in text.splitlines() if ln.strip()]
+        assert names == sorted(names, key=str.lower)
+
+
+async def test_size_mode_file_tree_shows_largest_first() -> None:
+    """After scanning and pressing s, the largest entry appears first."""
+    app, _ = await _make_scan_app({"/root": {"small.txt": 100, "big.txt": 5000, "mid.txt": 1000}})
+    async with app.run_test() as pilot:
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        await pilot.press("s")
+        text = app.query_one(FileTreePanel).render().plain
+        first_line = [ln for ln in text.splitlines() if ln.strip()][0]
+        assert "big" in first_line
+
+
+async def test_size_panel_matches_file_tree_order_after_sort() -> None:
+    """SizePanel row count matches FileTreePanel row count after sort toggle."""
+    app, _ = await _make_scan_app({"/root": {"small.txt": 100, "big.txt": 5000}})
+    async with app.run_test() as pilot:
+        await pilot.press("r")
+        await app.workers.wait_for_complete()
+        await pilot.press("s")
+        tree_lines = [
+            ln for ln in app.query_one(FileTreePanel).render().plain.splitlines() if ln.strip()
+        ]
+        size_lines = [
+            ln for ln in app.query_one(SizePanel).render().plain.splitlines() if ln.strip()
+        ]
+        assert len(tree_lines) == len(size_lines)
+        assert "big" in tree_lines[0]
+
+
+async def test_status_bar_shows_sort_hint(base_state) -> None:
+    """StatusBar hint text includes the [s] sort shortcut."""
+    app = _make_app(base_state)
+    async with app.run_test():
+        text = app.query_one(StatusBar).render().plain
+        assert "sort" in text.lower()

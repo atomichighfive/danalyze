@@ -24,6 +24,13 @@ class AppMode(StrEnum):
     SAVE_PROMPT = "save_prompt"
 
 
+class SortMode(StrEnum):
+    """Sort order for the file tree panel."""
+
+    ALPHA = "alpha"
+    SIZE = "size"
+
+
 @dataclass
 class FileNode:
     """A single entry in the filesystem tree.

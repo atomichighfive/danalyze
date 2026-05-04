@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus
+from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus, SortMode
 
 
 @pytest.fixture
@@ -111,6 +111,7 @@ def base_state(sample_tree: FileNode):
             pending_input="",
             drive_info=_drive,
             tree=_tree,
+            sort_mode=SortMode.ALPHA,
         )
         defaults.update(overrides)
         return AppState(**defaults)
