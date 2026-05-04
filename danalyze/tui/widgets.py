@@ -127,6 +127,8 @@ class FileTreePanel(Static):
             is_error = child.scan_status == ScanStatus.ERROR
             if is_error:
                 prefix = "!"
+            elif child.is_symlink:
+                prefix = "@"
             elif child.is_dir:
                 prefix = ">"
             else:

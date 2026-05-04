@@ -169,7 +169,8 @@ class _FakeDirEntry:
         full_path: Absolute path string of this entry.
         nodes: Reference to the filesystem's live node registry so that
             stat() reflects updates made via update_file_size().
-        _is_dir: Whether this entry is a directory.
+        _is_dir: Whether this entry is a directory (or symlink pointing to one).
+        _is_symlink: Whether this entry is a symbolic link.
         _denied: Whether stat should raise PermissionError.
     """
 
@@ -180,6 +181,7 @@ class _FakeDirEntry:
         nodes: dict[str, tuple[str, Any]],
         *,
         _is_dir: bool,
+        _is_symlink: bool = False,
         _denied: bool = False,
     ) -> None:
         """Initialise the fake dir entry.
@@ -188,22 +190,32 @@ class _FakeDirEntry:
             name: Entry name.
             full_path: Absolute path string.
             nodes: Shared node registry from InMemoryFilesystem.
-            _is_dir: Whether this is a directory.
+            _is_dir: Whether this is a directory or symlink pointing to one.
+            _is_symlink: Whether this entry is a symbolic link.
             _denied: If True, stat raises PermissionError.
         """
         self.name = name
         self.path = full_path
         self._nodes = nodes
         self._is_dir_flag = _is_dir
+        self._is_symlink_flag = _is_symlink
         self._denied = _denied
 
     def is_dir(self) -> bool:
         """Return whether this entry is a directory.
 
         Returns:
-            True if directory.
+            True if directory or symlink pointing to a directory.
         """
         return self._is_dir_flag
+
+    def is_symlink(self) -> bool:
+        """Return whether this entry is a symbolic link.
+
+        Returns:
+            True if symlink.
+        """
+        return self._is_symlink_flag
 
     def stat(self) -> _FakeStatResult:
         """Return a minimal stat result, reading size from the live node registry.
@@ -301,6 +313,30 @@ class InMemoryFilesystem:
         """
         self._permission_denied.add(path_str)
 
+    def add_symlink(self, path_str: str, *, target_is_dir: bool = False) -> None:
+        """Register a symlink under an existing directory in the fake filesystem.
+
+        The immediate parent directory must already exist. The symlink is injected
+        into the parent's live contents dict so that scandir discovers it.
+
+        Args:
+            path_str: Absolute path string for the symlink.
+            target_is_dir: True if the symlink points to a directory; False for
+                file targets and broken symlinks.
+
+        Raises:
+            ValueError: If the parent directory is not a known directory.
+        """
+        from pathlib import Path as _Path
+
+        parent_str = str(_Path(path_str).parent)
+        name = _Path(path_str).name
+        kind, contents = self._nodes.get(parent_str, (None, None))
+        if kind != "dir":
+            raise ValueError(f"Parent {parent_str!r} is not a known directory")
+        contents[name] = None  # sentinel; real type info is in _nodes[path_str]
+        self._nodes[path_str] = ("symlink", target_is_dir)
+
     # ------------------------------------------------------------------
     # FilesystemProtocol implementation
     # ------------------------------------------------------------------
@@ -330,13 +366,25 @@ class InMemoryFilesystem:
         for name, value in contents.items():
             child_path = f"{path_str}/{name}" if not path_str.endswith("/") else f"{path_str}{name}"
             denied = child_path in self._permission_denied
-            yield _FakeDirEntry(
-                name,
-                child_path,
-                self._nodes,
-                _is_dir=isinstance(value, dict),
-                _denied=denied,
-            )
+            child_entry = self._nodes.get(child_path)
+            if child_entry is not None and child_entry[0] == "symlink":
+                yield _FakeDirEntry(
+                    name,
+                    child_path,
+                    self._nodes,
+                    _is_dir=child_entry[1],
+                    _is_symlink=True,
+                    _denied=denied,
+                )
+            else:
+                yield _FakeDirEntry(
+                    name,
+                    child_path,
+                    self._nodes,
+                    _is_dir=isinstance(value, dict),
+                    _is_symlink=False,
+                    _denied=denied,
+                )
 
     def stat(self, path: Path) -> _FakeStatResult:
         """Return stat information for a path.

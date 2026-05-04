@@ -102,5 +102,14 @@ def main(argv: list[str] | None = None) -> None:
     app.run()
 
 
+def cli() -> None:
+    """Console script entry point.
+
+    Returns:
+        None
+    """
+    main()
+
+
 if __name__ == "__main__":
     main()

@@ -38,8 +38,10 @@ class FileNode:
     Args:
         path: Absolute path of this entry.
         name: Filename component (last segment of path).
-        is_dir: True if this entry is a directory.
-        size: Total byte count, or None until scanned.
+        is_dir: True if this entry is a directory (or a symlink pointing to one).
+        is_symlink: True if this entry is a symbolic link. Symlinks are displayed
+            with a distinct icon and are never stat-ed or recursed during scanning.
+        size: Total byte count, or None until scanned. Always None for symlinks.
         children: Direct children, or None until listed.
         scan_status: Current scan lifecycle state.
         error: Human-readable error message when scan_status == ERROR; None otherwise.
@@ -48,6 +50,7 @@ class FileNode:
     path: Path
     name: str
     is_dir: bool
+    is_symlink: bool = False
     size: int | None = None
     children: list[FileNode] | None = None
     scan_status: ScanStatus = ScanStatus.UNSCANNED

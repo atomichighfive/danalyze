@@ -43,8 +43,10 @@ supports note-taking, and can export annotated paths to JSON.
 Pure dataclasses. No I/O, no side effects.
 
 ```
-FileNode        path, name, is_dir, size, children, scan_status, error
-                  size: int | None          — None until scanned
+FileNode        path, name, is_dir, is_symlink, size, children, scan_status, error
+                  is_symlink: bool          — True if the entry is a symbolic link;
+                                             symlinks are never stat-ed or recursed
+                  size: int | None          — None until scanned; always None for symlinks
                   children: list | None     — None until listed
                   error: str | None         — human-readable error message when
                                              scan_status == ERROR; None otherwise
@@ -119,7 +121,14 @@ UNSCANNED -> (right arrow) -> LISTED -> (r key) -> SCANNING -> DONE
                                                              -> ERROR (per-node, non-fatal)
 ```
 
+Symlinks are a special case: they are listed by `list_directory` (visible in the tree)
+but permanently skipped by `scan_sizes`. They stay `UNSCANNED` with `size=None` forever.
+`is_symlink=True` is detected in `list_directory` via `DirEntry.is_symlink()` (no stat
+required). `is_dir` for a symlink reflects the resolved type (so symlink-to-dirs can be
+navigated into), but `scan_sizes` checks `is_symlink` first and skips before any stat call.
+
 Sizes display as `---` in the size panel until a node reaches DONE.
+Symlinks also display `---` (they never leave UNSCANNED).
 ERROR nodes display their error message instead of a size; scanning continues for siblings.
 `r` always forces a fresh scan of the current view_root (invalidates + re-scans).
 
@@ -369,12 +378,14 @@ Responsibilities:
 ### `tui/widgets.py`
 ```
 InfoBar          Renders DriveInfo as top bar with usage percentage
-FileTreePanel    Scrollable list of FileNode entries with > prefix for dirs.
-                 ERROR nodes are rendered with a warning sigil and dimmed style;
-                 the error message appears in place of the filename suffix.
+FileTreePanel    Scrollable list of FileNode entries with > prefix for dirs,
+                 @ prefix for symlinks, ! prefix for ERROR nodes.
+                 Symlink-to-dirs show @ (not >) so the user can distinguish them.
+                 The error message appears in place of the filename suffix for ERROR nodes.
 SizePanel        Per-entry size + bar chart, aligned with FileTreePanel rows.
                  ERROR nodes show the short error string (e.g. "permission denied")
                  in place of a size and bar. No bar is rendered.
+                 Symlinks show --- (size is always None).
 StatusBar        Context-sensitive hints: [q]uit [w]rite [r]escan [enter]note
 NoteOverlay      Single-line text input shown when mode == NOTE_INPUT
 PromptOverlay    Yes/no or filename prompt (QUIT_PROMPT / SAVE_PROMPT)
@@ -499,6 +510,7 @@ def test_render_bar_full():
 |   Downloads/        [note]            |  12.1 GB  ████░░░░░░░░  |
 |   .cache/                             |   8.3 GB  ██░░░░░░░░░░  |
 | ! private/          [error]           |  permission denied       |
+| @ .venv/            [note]            |  ---                     |
 |   .bashrc                             |   4.0 KB  ░░░░░░░░░░░░  |
 +---------------------------------------+--------------------------+
 |  [up/down] navigate  [right] enter  [left] back  [r] scan       |
@@ -508,8 +520,9 @@ def test_render_bar_full():
 
 - Entries with notes show `[note]` tag.
 - ERROR entries show `!` sigil, `[error]` tag in the tree, and the error message in the size panel.
+- Symlinks show `@` sigil and always display `---` in the size panel (never scanned).
 - Sizes show `---` until `r` has been pressed for that branch.
-- Bar widths are relative to successfully-scanned siblings; ERROR entries have no bar.
+- Bar widths are relative to successfully-scanned siblings; ERROR and symlink entries have no bar.
 
 ---
 
@@ -529,6 +542,50 @@ Options:
                 exist under PATH are loaded but shown as absent (greyed out) if
                 encountered during navigation, and included in any subsequent export.
 ```
+
+---
+
+## Packaging & Installation
+
+danalyze is packaged as a Python wheel using `hatchling`. The `[project.scripts]`
+entry point in `pyproject.toml` exposes a `danalyze` shell command:
+
+```toml
+[project.scripts]
+danalyze = "danalyze.__main__:cli"
+```
+
+`cli()` is a zero-argument wrapper in `__main__.py` that calls `main(sys.argv[1:])`.
+Console script entry points must be zero-argument callables; this wrapper keeps
+`main(argv)` testable with an explicit argument list.
+
+### Local installation
+```bash
+make install
+# equivalent to: uv tool install --editable .
+```
+`uv tool install` places `danalyze` in a dedicated isolated virtualenv and symlinks
+the command into `~/.local/bin` (which must be on `PATH`). The `--editable` flag
+means source changes take effect immediately without reinstalling.
+
+### Installing on another machine
+```bash
+# From the private GitHub repo (requires SSH access):
+uv tool install "git+ssh://git@github.com/atomichighfive/danalyze@v0.1.0"
+
+# From a downloaded wheel (no git required):
+uv tool install ./danalyze-0.1.0-py3-none-any.whl
+```
+
+### Cutting a release
+```bash
+# 1. Bump version in pyproject.toml and danalyze/__init__.py
+# 2. Commit the bump
+# 3. Run:
+make release VERSION=0.2.0
+```
+`make release` builds the wheel, creates and pushes a git tag, and publishes a
+GitHub Release with the wheel attached (uses `gh` CLI).
 
 ---
 

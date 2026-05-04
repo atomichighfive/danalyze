@@ -93,10 +93,16 @@ class DiskScanner:
 
         node.children = []
         for entry in entries:
+            is_sym = entry.is_symlink()
+            try:
+                is_dir_val = entry.is_dir()
+            except OSError:
+                is_dir_val = False
             child = FileNode(
                 path=Path(entry.path),
                 name=entry.name,
-                is_dir=entry.is_dir(),
+                is_dir=is_dir_val,
+                is_symlink=is_sym,
                 scan_status=ScanStatus.UNSCANNED,
             )
             node.children.append(child)
@@ -120,6 +126,12 @@ class DiskScanner:
             and scanning continues for remaining siblings.
         """
         self._registry[node.path] = node
+        if node.is_symlink:
+            # Never compute sizes for a symlink. If invalidate() cleared children,
+            # relist so the view remains usable when navigated inside the symlink.
+            if node.scan_status == ScanStatus.UNSCANNED:
+                await self.list_directory(node)
+            return
         if node.is_dir:
             await self._scan_dir(node)
         else:
@@ -172,7 +184,14 @@ class DiskScanner:
         total = 0
         for child in node.children or []:
             self._registry[child.path] = child
-            if child.is_dir:
+            if child.is_symlink:
+                log.debug(
+                    "scanner.scan_sizes.symlink_skipped",
+                    "Skipping symlink %s",
+                    child.path,
+                )
+                continue
+            elif child.is_dir:
                 await self._scan_dir(child)
                 if child.scan_status == ScanStatus.DONE and child.size is not None:
                     total += child.size

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from danalyze.filesystem import InMemoryFilesystem
-from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, SortMode
+from danalyze.models import AppMode, DriveInfo, FileNode, FileTree, ScanStatus, SortMode
 from danalyze.scanner import DiskScanner
 from danalyze.state import AppState
 from danalyze.tui.app import DiskAnalyzerApp
@@ -634,3 +634,55 @@ async def test_status_bar_shows_sort_hint(base_state) -> None:
     async with app.run_test():
         text = app.query_one(StatusBar).render().plain
         assert "sort" in text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 15: symlink icon
+# ---------------------------------------------------------------------------
+
+
+def test_file_tree_symlink_shows_at_icon(base_state) -> None:
+    """Symlink entries use '@' as prefix, not '>' or ' '."""
+    symlink_node = FileNode(
+        path=Path("/root/link"),
+        name="link",
+        is_dir=True,
+        is_symlink=True,
+        scan_status=ScanStatus.UNSCANNED,
+    )
+    root = FileNode(
+        path=Path("/root"),
+        name="root",
+        is_dir=True,
+        children=[symlink_node],
+        scan_status=ScanStatus.LISTED,
+    )
+    state = base_state(view_root=root)
+    text = FileTreePanel._build(state).plain
+    lines = text.splitlines()
+    link_line = next(ln for ln in lines if "link" in ln)
+    assert "@" in link_line
+    assert link_line.strip().startswith("@")
+
+
+def test_file_tree_symlink_to_file_shows_at_icon(base_state) -> None:
+    """Symlink-to-file also uses '@' prefix."""
+    symlink_node = FileNode(
+        path=Path("/root/lnk"),
+        name="lnk",
+        is_dir=False,
+        is_symlink=True,
+        scan_status=ScanStatus.UNSCANNED,
+    )
+    root = FileNode(
+        path=Path("/root"),
+        name="root",
+        is_dir=True,
+        children=[symlink_node],
+        scan_status=ScanStatus.LISTED,
+    )
+    state = base_state(view_root=root)
+    text = FileTreePanel._build(state).plain
+    lines = text.splitlines()
+    link_line = next(ln for ln in lines if "lnk" in ln)
+    assert link_line.strip().startswith("@")

@@ -272,3 +272,131 @@ async def test_no_progress_callback_does_not_raise() -> None:
     scanner = DiskScanner(fs)  # no on_progress
     node = _root_node()
     await scanner.scan_sizes(node)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Phase 15: symlink handling
+# ---------------------------------------------------------------------------
+
+
+async def test_list_directory_detects_symlink() -> None:
+    fs = InMemoryFilesystem({"/root": {}})
+    fs.add_symlink("/root/link", target_is_dir=False)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.list_directory(node)
+    link = next(c for c in node.children if c.name == "link")
+    assert link.is_symlink is True
+
+
+async def test_list_directory_symlink_to_dir_has_is_dir_true() -> None:
+    fs = InMemoryFilesystem({"/root": {}})
+    fs.add_symlink("/root/link", target_is_dir=True)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.list_directory(node)
+    link = next(c for c in node.children if c.name == "link")
+    assert link.is_dir is True
+
+
+async def test_list_directory_symlink_to_file_has_is_dir_false() -> None:
+    fs = InMemoryFilesystem({"/root": {}})
+    fs.add_symlink("/root/link", target_is_dir=False)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.list_directory(node)
+    link = next(c for c in node.children if c.name == "link")
+    assert link.is_dir is False
+
+
+async def test_list_directory_regular_file_is_not_symlink() -> None:
+    fs = InMemoryFilesystem({"/root": {"a.txt": 100}})
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.list_directory(node)
+    assert node.children[0].is_symlink is False
+
+
+async def test_scan_sizes_skips_symlink_to_dir() -> None:
+    fs = InMemoryFilesystem({"/root": {}})
+    fs.add_symlink("/root/link", target_is_dir=True)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.scan_sizes(node)
+    link = next(c for c in node.children if c.name == "link")
+    assert link.scan_status == ScanStatus.UNSCANNED
+
+
+async def test_scan_sizes_skips_broken_symlink() -> None:
+    fs = InMemoryFilesystem({"/root": {}})
+    fs.add_symlink("/root/link", target_is_dir=False)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.scan_sizes(node)
+    link = next(c for c in node.children if c.name == "link")
+    assert link.scan_status == ScanStatus.UNSCANNED
+
+
+async def test_scan_sizes_symlink_does_not_contribute_to_parent_size() -> None:
+    fs = InMemoryFilesystem({"/root": {"a.txt": 100}})
+    fs.add_symlink("/root/link", target_is_dir=True)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.scan_sizes(node)
+    assert node.size == 100
+
+
+async def test_scan_sizes_does_not_crash_on_symlinks() -> None:
+    fs = InMemoryFilesystem({"/root": {}})
+    fs.add_symlink("/root/link", target_is_dir=True)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.scan_sizes(node)  # must not raise
+
+
+async def test_scan_sizes_mixed_files_and_symlinks_sums_only_files() -> None:
+    fs = InMemoryFilesystem({"/root": {"a.txt": 300, "b.txt": 200}})
+    fs.add_symlink("/root/lnk", target_is_dir=False)
+    scanner = DiskScanner(fs)
+    node = _root_node()
+    await scanner.scan_sizes(node)
+    assert node.size == 500
+
+
+async def test_scan_sizes_on_symlink_root_does_not_set_size() -> None:
+    # Simulates pressing r while view_root is a symlink (navigated into it).
+    symlink_node = FileNode(
+        path=Path("/root/link"),
+        name="link",
+        is_dir=True,
+        is_symlink=True,
+        scan_status=ScanStatus.LISTED,
+        children=[],
+    )
+    fs = InMemoryFilesystem({"/root": {}})
+    scanner = DiskScanner(fs)
+    await scanner.scan_sizes(symlink_node)
+    assert symlink_node.size is None
+    assert symlink_node.scan_status != ScanStatus.DONE
+
+
+async def test_scan_sizes_on_symlink_root_after_invalidate_relists() -> None:
+    # Simulates invalidate() → scan_sizes() flow when view_root is a symlink.
+    # invalidate resets children to None + UNSCANNED; scan_sizes should relist.
+    symlink_node = FileNode(
+        path=Path("/root"),
+        name="root",
+        is_dir=True,
+        is_symlink=True,
+        scan_status=ScanStatus.UNSCANNED,
+        children=None,
+    )
+    fs = InMemoryFilesystem({"/root": {"a.txt": 100}})
+    # Make /root itself a symlink in the fake FS so scandir can look it up
+    # by injecting children; we use a plain dir here to let list_directory succeed.
+    # (In production the symlink target is followed by os.scandir.)
+    scanner = DiskScanner(fs)
+    await scanner.scan_sizes(symlink_node)
+    # list_directory should have been called and children populated
+    assert symlink_node.children is not None
+    assert symlink_node.size is None

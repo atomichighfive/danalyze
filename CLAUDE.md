@@ -32,6 +32,40 @@ uv run python -m danalyze -o previous_export.csv
 uv run python -m danalyze /some/path --debug -o notes.csv
 ```
 
+## Installing Locally
+
+```bash
+make install
+# Equivalent to: uv tool install --editable .
+# Makes `danalyze` available as a shell command from anywhere.
+# Requires ~/.local/bin on PATH.
+```
+
+## Cutting a Release
+
+1. Bump `version` in `pyproject.toml` and `__version__` in `danalyze/__init__.py`
+2. Commit: `git commit -m "chore: bump version to X.Y.Z"`
+3. Run: `make release VERSION=X.Y.Z`
+   - Builds the wheel (`uv build`)
+   - Tags `vX.Y.Z` and pushes the tag
+   - Creates a GitHub Release with the wheel attached (`gh release create`)
+
+## Installing on Another Machine
+
+Requires `uv` (single static binary):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then install from the private GitHub repo:
+```bash
+# From git (SSH access required), pinned to a tag:
+uv tool install "git+ssh://git@github.com/atomichighfive/danalyze@vX.Y.Z"
+
+# From a downloaded wheel (no git required):
+uv tool install ./danalyze-X.Y.Z-py3-none-any.whl
+```
+
 ## Common Development Commands
 
 ```bash
