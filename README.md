@@ -21,13 +21,13 @@ uv tool install ./danalyze-1.0.0-py3-none-any.whl
 Or install directly from the GitHub repo (always tracks the latest commit):
 
 ```bash
-uv tool install "git+ssh://git@github.com/atomichighfive/danalyze"
+uv tool install "git+https://github.com/atomichighfive/danalyze"
 ```
 
 Pin to a specific tag:
 
 ```bash
-uv tool install "git+ssh://git@github.com/atomichighfive/danalyze@v1.0.0"
+uv tool install "git+https://github.com/atomichighfive/danalyze@v1.0.0"
 ```
 
 ## Uninstall
