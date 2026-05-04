@@ -10,16 +10,28 @@ Requires [uv](https://docs.astral.sh/uv/):
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Install from the private GitHub repo:
+Install a specific release from a downloaded wheel:
 
 ```bash
-uv tool install "git+ssh://git@github.com/atomichighfive/danalyze@v0.1.0"
+uv tool install ./danalyze-1.0.0-py3-none-any.whl
 ```
 
-Or from a downloaded wheel:
+Or install directly from the GitHub repo (always tracks the latest commit):
 
 ```bash
-uv tool install ./danalyze-0.1.0-py3-none-any.whl
+uv tool install "git+ssh://git@github.com/atomichighfive/danalyze"
+```
+
+Pin to a specific tag:
+
+```bash
+uv tool install "git+ssh://git@github.com/atomichighfive/danalyze@v1.0.0"
+```
+
+## Uninstall
+
+```bash
+uv tool uninstall danalyze
 ```
 
 ## Usage
