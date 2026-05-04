@@ -28,6 +28,7 @@ from danalyze.state import (
     navigate_out,
     navigate_up,
     selected_node,
+    sorted_children,
     submit_note,
     toggle_sort,
 )
@@ -39,6 +40,7 @@ from danalyze.tui.widgets import (
     SizePanel,
     StatusBar,
 )
+from danalyze.viewport import clamp, position_at, tumble_down, tumble_up
 
 log = get_logger(__name__)
 
@@ -95,6 +97,7 @@ class DiskAnalyzerApp(App):
         self._state = state
         self._scanner = scanner
         self._overlay: NoteOverlay | PromptOverlay | None = None
+        self._scroll_offset: int = 0
 
     def on_mount(self) -> None:
         """Wire the scanner's on_progress callback to post ScanProgress messages.
@@ -210,21 +213,27 @@ class DiskAnalyzerApp(App):
     # ------------------------------------------------------------------
 
     def action_nav_up(self) -> None:
-        """Move selection up one entry.
+        """Move selection up one entry, retreating the viewport if needed.
 
         Side effects:
-            Updates self._state and refreshes all widgets.
+            Updates self._state, updates self._scroll_offset, refreshes all widgets.
         """
         self._state = navigate_up(self._state)
+        h = self._panel_height()
+        n = len(sorted_children(self._state))
+        self._scroll_offset = tumble_up(self._scroll_offset, self._state.selected_index, n, h)
         self._refresh_widgets()
 
     def action_nav_down(self) -> None:
-        """Move selection down one entry.
+        """Move selection down one entry, advancing the viewport if needed.
 
         Side effects:
-            Updates self._state and refreshes all widgets.
+            Updates self._state, updates self._scroll_offset, refreshes all widgets.
         """
         self._state = navigate_down(self._state)
+        h = self._panel_height()
+        n = len(sorted_children(self._state))
+        self._scroll_offset = tumble_down(self._scroll_offset, self._state.selected_index, n, h)
         self._refresh_widgets()
 
     async def action_nav_right(self) -> None:
@@ -237,12 +246,19 @@ class DiskAnalyzerApp(App):
         await self._navigate_right()
 
     def action_nav_left(self) -> None:
-        """Go back to the parent directory.
+        """Go back to the parent directory, positioning the viewport at the exited entry.
+
+        The scroll offset is computed from the live sorted children of the parent
+        after the state mutation, so any additions or deletions in the parent since
+        the last visit are reflected automatically.
 
         Side effects:
-            Updates self._state and refreshes all widgets.
+            Updates self._state, updates self._scroll_offset, refreshes all widgets.
         """
         self._state = navigate_out(self._state)
+        h = self._panel_height()
+        n = len(sorted_children(self._state))
+        self._scroll_offset = position_at(self._state.selected_index, n, h)
         self._refresh_widgets()
 
     def action_scan(self) -> None:
@@ -272,6 +288,14 @@ class DiskAnalyzerApp(App):
 
         Side effects:
             Calls _refresh_widgets.
+        """
+        self._refresh_widgets()
+
+    def on_resize(self) -> None:
+        """Re-render everything when the terminal is resized.
+
+        Side effects:
+            Calls _refresh_widgets with the updated screen height.
         """
         self._refresh_widgets()
 
@@ -401,25 +425,46 @@ class DiskAnalyzerApp(App):
         """List directory then navigate into it.
 
         Calls scanner.list_directory on the selected dir (skips ERROR nodes),
-        then applies navigate_into to update the view root.
+        then applies navigate_into to update the view root. Resets scroll offset
+        to 0 so the new directory always starts from the top.
 
         Side effects:
             May mutate the selected FileNode via list_directory.
-            Updates self._state and refreshes all widgets.
+            Updates self._state, resets self._scroll_offset, refreshes all widgets.
         """
         node = selected_node(self._state)
         if node.is_dir and node.scan_status != ScanStatus.ERROR:
             await self._scanner.list_directory(node)
         self._state = navigate_into(self._state)
+        self._scroll_offset = 0
         self._refresh_widgets()
 
+    def _panel_height(self) -> int:
+        """Return the number of rows available for file listing.
+
+        Derived from the screen height minus the two fixed single-row widgets
+        (InfoBar docked top, StatusBar docked bottom). Navigation is always
+        disabled while overlays are open, so overlay heights are ignored.
+
+        Returns:
+            Panel height in rows, always at least 1.
+        """
+        return max(1, self.screen.size.height - 2)
+
     def _refresh_widgets(self) -> None:
-        """Push the current state to all widgets.
+        """Push the current state, scroll offset, and panel height to all widgets.
+
+        Clamps self._scroll_offset before forwarding it so any out-of-band list
+        changes (scan results, sort toggle) never produce a blank viewport.
 
         Side effects:
-            Calls refresh_state() on every panel widget and the current overlay.
+            Clamps self._scroll_offset. Calls refresh_state() on every panel widget
+            and the current overlay.
         """
+        h = self._panel_height()
+        n = len(sorted_children(self._state))
+        self._scroll_offset = clamp(self._scroll_offset, n, h)
         self.query_one(InfoBar).refresh_state(self._state)
-        self.query_one(FileTreePanel).refresh_state(self._state)
-        self.query_one(SizePanel).refresh_state(self._state)
+        self.query_one(FileTreePanel).refresh_state(self._state, self._scroll_offset, h)
+        self.query_one(SizePanel).refresh_state(self._state, self._scroll_offset, h)
         self.query_one(StatusBar).refresh_state(self._state)

@@ -8,6 +8,7 @@ from textual.widgets import Static
 from danalyze.formatter import format_size, render_bar
 from danalyze.models import ScanStatus
 from danalyze.state import AppState, sorted_children
+from danalyze.viewport import clamp
 
 _BAR_WIDTH = 12
 
@@ -92,6 +93,8 @@ class FileTreePanel(Static):
         """
         super().__init__(markup=False)
         self._state = state
+        self._scroll_offset: int = 0
+        self._panel_height: int = 0
 
     def on_mount(self) -> None:
         """Render initial content when mounted.
@@ -104,26 +107,40 @@ class FileTreePanel(Static):
     def on_resize(self) -> None:
         """Re-render when the panel width changes so note truncation stays accurate.
 
+        Uses the panel_height last set by refresh_state(); corrected on the next
+        _refresh_widgets() call from the app.
+
         Side effects:
             Calls update() with re-rendered tree text using current width.
         """
         self._render_state()
 
     @staticmethod
-    def _build(state: AppState, width: int = 40) -> Text:
-        """Render the file tree as a Rich Text object with selection highlight.
+    def _build(
+        state: AppState,
+        width: int = 40,
+        scroll_offset: int = 0,
+        panel_height: int = 0,
+    ) -> Text:
+        """Render the visible slice of the file tree as a Rich Text object.
 
         Args:
             state: Application state to render from.
             width: Panel width in characters; used to truncate long notes.
+            scroll_offset: First visible row index into the sorted children list.
+            panel_height: Number of rows to render. 0 means render all children.
 
         Returns:
-            Rich Text with one entry per line; the selected row is highlighted
-            with reverse video.
+            Rich Text with one entry per line for the visible slice; the selected
+            row is highlighted with reverse video.
         """
         result = Text()
-        children = sorted_children(state)
-        for i, child in enumerate(children):
+        all_children = sorted_children(state)
+        n = len(all_children)
+        offset = clamp(scroll_offset, n, panel_height)
+        visible = all_children[offset : offset + panel_height] if panel_height > 0 else all_children
+        for i, child in enumerate(visible):
+            abs_idx = offset + i
             is_error = child.scan_status == ScanStatus.ERROR
             if is_error:
                 prefix = "!"
@@ -156,23 +173,29 @@ class FileTreePanel(Static):
             line = f"{prefix} {name}{tag}"
             if i > 0:
                 result.append("\n")
-            style = "reverse" if i == state.selected_index else ""
+            style = "reverse" if abs_idx == state.selected_index else ""
             result.append(line, style=style)
         return result
 
     def _render_state(self) -> None:
-        self.update(self._build(self._state, self.size.width or 40))
+        self.update(
+            self._build(self._state, self.size.width or 40, self._scroll_offset, self._panel_height)
+        )
 
-    def refresh_state(self, state: AppState) -> None:
-        """Update the widget with a new AppState.
+    def refresh_state(self, state: AppState, scroll_offset: int = 0, panel_height: int = 0) -> None:
+        """Update the widget with a new AppState, scroll offset, and panel height.
 
         Args:
             state: New application state.
+            scroll_offset: First visible row index; forwarded to _build().
+            panel_height: Number of rows to render; forwarded to _build().
 
         Side effects:
             Calls update() to repaint the widget.
         """
         self._state = state
+        self._scroll_offset = scroll_offset
+        self._panel_height = panel_height
         self._render_state()
 
 
@@ -197,6 +220,8 @@ class SizePanel(Static):
         """
         super().__init__(markup=False)
         self._state = state
+        self._scroll_offset: int = 0
+        self._panel_height: int = 0
 
     def on_mount(self) -> None:
         """Render initial content when mounted.
@@ -206,28 +231,49 @@ class SizePanel(Static):
         """
         self._render_state()
 
+    def on_resize(self) -> None:
+        """Re-render when the panel height changes so the visible slice stays accurate.
+
+        Uses the panel_height last set by refresh_state(); corrected on the next
+        _refresh_widgets() call from the app.
+
+        Side effects:
+            Calls update() with re-rendered size text.
+        """
+        self._render_state()
+
     @staticmethod
-    def _build(state: AppState) -> Text:
-        """Render per-entry size information as a Rich Text object with selection highlight.
+    def _build(state: AppState, scroll_offset: int = 0, panel_height: int = 0) -> Text:
+        """Render the visible slice of per-entry sizes as a Rich Text object.
+
+        max_size is computed from the full children list (not just the visible
+        slice) so bar proportions stay stable while scrolling.
 
         Args:
             state: Application state to render from.
+            scroll_offset: First visible row index into the sorted children list.
+            panel_height: Number of rows to render. 0 means render all children.
 
         Returns:
-            Rich Text with one size entry per line; the selected row is highlighted
-            with reverse video, matching the FileTreePanel highlight pattern.
+            Rich Text with one size entry per line for the visible slice; the
+            selected row is highlighted with reverse video.
         """
-        children = sorted_children(state)
+        all_children = sorted_children(state)
+        n = len(all_children)
         done_sizes = [
-            c.size for c in children if c.scan_status == ScanStatus.DONE and c.size is not None
+            c.size for c in all_children if c.scan_status == ScanStatus.DONE and c.size is not None
         ]
         max_size = max(done_sizes, default=0) or 1
 
+        offset = clamp(scroll_offset, n, panel_height)
+        visible = all_children[offset : offset + panel_height] if panel_height > 0 else all_children
+
         result = Text()
-        for i, child in enumerate(children):
+        for i, child in enumerate(visible):
+            abs_idx = offset + i
             if i > 0:
                 result.append("\n")
-            sel_style = "reverse" if i == state.selected_index else ""
+            sel_style = "reverse" if abs_idx == state.selected_index else ""
 
             if child.scan_status == ScanStatus.ERROR:
                 result.append(child.error or "error", style=sel_style)
@@ -240,18 +286,22 @@ class SizePanel(Static):
         return result
 
     def _render_state(self) -> None:
-        self.update(self._build(self._state))
+        self.update(self._build(self._state, self._scroll_offset, self._panel_height))
 
-    def refresh_state(self, state: AppState) -> None:
-        """Update the widget with a new AppState.
+    def refresh_state(self, state: AppState, scroll_offset: int = 0, panel_height: int = 0) -> None:
+        """Update the widget with a new AppState, scroll offset, and panel height.
 
         Args:
             state: New application state.
+            scroll_offset: First visible row index; forwarded to _build().
+            panel_height: Number of rows to render; forwarded to _build().
 
         Side effects:
             Calls update() to repaint the widget.
         """
         self._state = state
+        self._scroll_offset = scroll_offset
+        self._panel_height = panel_height
         self._render_state()
 
 

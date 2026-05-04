@@ -21,8 +21,9 @@ supports note-taking, and can export annotated paths to JSON.
 │  TUI Layer          tui/app.py, tui/widgets.py          │
 │  (Textual widgets, thin renderers, key bindings)        │
 ├─────────────────────────────────────────────────────────┤
-│  Application State  state.py                            │
-│  (AppState dataclass + pure event-handler functions)    │
+│  Application State  state.py, viewport.py               │
+│  (AppState dataclass + pure event-handler functions;    │
+│   viewport offset helpers for scroll management)        │
 ├─────────────────────────────────────────────────────────┤
 │  Services           scanner.py, notes.py, export.py     │
 │  (I/O operations, all depend on injected protocols)     │
@@ -155,11 +156,13 @@ format_bar_line(size: int, total: int, bar_width: int) -> str
 @dataclass
 class AppState:
     view_root: FileNode        # Currently visible directory
-    selected_index: int        # Index into view_root.children
+    selected_index: int        # Index into sorted view_root.children
     notes: dict[str, str]      # absolute path string -> note text
     mode: AppMode
     pending_input: str         # Text being typed in NOTE_INPUT / SAVE_PROMPT
     drive_info: DriveInfo
+    tree: FileTree             # Full tree needed for upward navigation
+    sort_mode: SortMode        # ALPHA (default) or SIZE
 ```
 
 Pure functions (state in -> state out, no mutations):
@@ -176,10 +179,50 @@ begin_quit(state)            -> AppState   # mode -> QUIT_PROMPT
 begin_save(state)            -> AppState   # mode -> SAVE_PROMPT
 append_input(state, char)    -> AppState
 backspace_input(state)       -> AppState
-selected_node(state)         -> FileNode   # helper: view_root.children[selected_index]
+toggle_sort(state)           -> AppState   # cycle sort_mode ALPHA <-> SIZE
+selected_node(state)         -> FileNode   # sorted_children(state)[selected_index]
+sorted_children(state)       -> list[FileNode]  # view_root.children in sort_mode order
 ```
 
-Raises `NavigationError` for invalid transitions (e.g. navigate_into a file).
+### `viewport.py`
+Pure functions for viewport offset management. Zero I/O, zero TUI imports — fully
+unit-testable without a running terminal.
+
+The scroll offset (`int`) lives on the `DiskAnalyzerApp` instance in `tui/app.py`, not
+in `AppState`. These functions compute a new offset after each navigation event and are
+also used by `tui/widgets.py` to clamp the offset defensively before rendering.
+
+```
+clamp(scroll_offset, n_children, panel_height) -> int
+    Clamp scroll_offset to [0, max(0, n_children - panel_height)].
+    Returns 0 when panel_height is 0 (unconstrained) or all entries fit.
+
+tumble_down(scroll_offset, selected_index, n_children, panel_height) -> int
+    Clamp first (guards against stale offsets from list changes), then if
+    selected_index is below the bottom visible row, advance offset by
+    max(1, panel_height // 3) and re-clamp.
+
+tumble_up(scroll_offset, selected_index, n_children, panel_height) -> int
+    Clamp first, then if selected_index is above the top visible row, retreat
+    offset by max(1, panel_height // 3), floored at 0.
+
+position_at(selected_index, n_children, panel_height) -> int
+    Returns clamp(selected_index - panel_height // 2, n_children, panel_height).
+    Centers the given entry vertically in the viewport (clamped at list bounds).
+    Called by tui/app.py after navigate_out so the directory just exited
+    appears near the middle of the parent listing.
+```
+
+**Scroll offset lifecycle in `tui/app.py`:**
+```
+navigate_down  -> tumble_down(offset, new_selected_index, n, h)
+navigate_up    -> tumble_up(offset, new_selected_index, n, h)
+navigate_into  -> offset = 0
+navigate_out   -> position_at(new_selected_index, live_n, h)
+                  (live_n = len(sorted_children) after mutation, reflects any
+                   additions/deletions in the parent since last visit)
+_refresh_widgets -> clamp(offset, n, h)   # safety net on every render
+```
 
 ### `notes.py`
 `NoteStore` wraps the `notes` dict from AppState with typed validation.
@@ -371,6 +414,8 @@ def test_async_process_id_propagates(caplog):
 
 Responsibilities:
 - Receive key events -> call pure state functions -> post updated state to widgets
+- Owns `self._scroll_offset: int` — updated via `viewport.py` helpers after each navigation,
+  then forwarded to widgets on every `_refresh_widgets()` call
 - On right-arrow into dir: call `scanner.list_directory(node)` (fast, just lists children)
 - On `r`: call `scanner.scan_sizes(node)` with invalidation (forces fresh recursive size scan)
 - Both scanner calls run as Textual `workers` (async, non-blocking) and post messages to refresh widgets
@@ -378,21 +423,20 @@ Responsibilities:
 ### `tui/widgets.py`
 ```
 InfoBar          Renders DriveInfo as top bar with usage percentage
-FileTreePanel    Scrollable list of FileNode entries with > prefix for dirs,
-                 @ prefix for symlinks, ! prefix for ERROR nodes.
-                 Symlink-to-dirs show @ (not >) so the user can distinguish them.
-                 The error message appears in place of the filename suffix for ERROR nodes.
-SizePanel        Per-entry size + bar chart, aligned with FileTreePanel rows.
-                 ERROR nodes show the short error string (e.g. "permission denied")
-                 in place of a size and bar. No bar is rendered.
-                 Symlinks show --- (size is always None).
-StatusBar        Context-sensitive hints: [q]uit [w]rite [r]escan [enter]note
+FileTreePanel    Renders the visible slice of FileNode entries (scroll_offset to
+                 scroll_offset + panel_height). Prefix: > dir, @ symlink, ! ERROR.
+                 Notes shown inline as quoted text; ERROR entries show [error] tag.
+SizePanel        Per-entry size + bar chart for the same visible slice as FileTreePanel.
+                 max_size is computed from the full children list (not just visible rows)
+                 so bar proportions stay stable while scrolling.
+                 ERROR nodes show the short error string; symlinks show ---.
+StatusBar        Static key hints bar.
 NoteOverlay      Single-line text input shown when mode == NOTE_INPUT
 PromptOverlay    Yes/no or filename prompt (QUIT_PROMPT / SAVE_PROMPT)
 ```
 
-All widgets are reactive to `AppState` via Textual's `reactive` + `watch_*` pattern.
-Widgets do NOT hold business logic.
+Widgets receive `AppState` and `scroll_offset` via `refresh_state(state, scroll_offset)`
+on every state change. They do not hold business logic or compute scroll offsets.
 
 ---
 
@@ -408,6 +452,7 @@ danalyze/
 ├── scanner.py
 ├── formatter.py
 ├── state.py
+├── viewport.py           # pure scroll offset helpers (clamp, tumble_down, tumble_up, position_at)
 ├── notes.py
 ├── export.py
 ├── logging_config.py
@@ -422,7 +467,8 @@ tests/
 ├── test_models.py
 ├── test_scanner.py
 ├── test_formatter.py
-├── test_state.py         # heaviest test file: all navigation + mode transitions
+├── test_state.py         # all navigation + mode transitions
+├── test_viewport.py      # pure viewport offset helpers
 ├── test_notes.py
 ├── test_export.py
 └── test_tui.py           # Textual Pilot integration tests
