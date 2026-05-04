@@ -1,5 +1,7 @@
 # danalyze
 
+![danalyze screenshot](docs/screenshot.png)
+
 Terminal UI for analyzing disk space usage.
 
 ## Installation
