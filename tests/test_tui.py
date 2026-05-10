@@ -40,11 +40,51 @@ async def test_app_mounts_without_error(base_state) -> None:
         pass
 
 
-async def test_infobar_shows_device_name(base_state) -> None:
+async def test_infobar_shows_view_root_path(base_state) -> None:
     app = _make_app(base_state)
     async with app.run_test():
         text = app.query_one(InfoBar).render().plain
-        assert "/dev/sda1" in text
+        # InfoBar shows current view_root path relative to tree root; at root shows "."
+        # Path is left-aligned, stats are right-aligned with padding in between
+        assert text.startswith(".")
+        assert "Total:" in text
+        assert "Used:" in text
+        assert "Free:" in text
+
+
+async def test_infobar_truncates_long_path() -> None:
+    from pathlib import Path
+
+    from danalyze.models import DriveInfo, FileNode, FileTree
+    from danalyze.state import AppState
+    from danalyze.tui.app import DiskAnalyzerApp
+
+    # Create tree root at /home
+    root_path = Path("/home")
+    tree_root = FileNode(path=root_path, name="home", is_dir=True)
+
+    # Create a deeply nested view_root
+    deep_path = Path("/home/user/very/long/path/with/many/segments/to/test/truncation/behavior")
+    deep_root = FileNode(path=deep_path, name="behavior", is_dir=True)
+    drive_info = DriveInfo("/dev/sda1", 500 * 1024**3, 200 * 1024**3, 300 * 1024**3, Path("/"))
+    state = AppState(
+        view_root=deep_root,
+        selected_index=0,
+        notes={},
+        mode=AppMode.BROWSE,
+        pending_input="",
+        drive_info=drive_info,
+        tree=FileTree(root=tree_root),
+    )
+    app = DiskAnalyzerApp(state=state, scanner=MagicMock())
+    async with app.run_test():
+        text = app.query_one(InfoBar).render().plain
+        # Long path should be truncated from the left with "./..." indicator
+        assert "./..." in text
+        # Should still show the stats
+        assert "Total:" in text
+        assert "Used:" in text
+        assert "Free:" in text
 
 
 async def test_infobar_shows_sizes(base_state) -> None:
