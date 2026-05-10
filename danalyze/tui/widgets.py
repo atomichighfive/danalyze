@@ -51,12 +51,41 @@ class InfoBar(Static):
             Calls self.update() with the formatted drive info string.
         """
         di = self._state.drive_info
-        text = (
-            f"{di.device}"
-            f"  Total: {format_size(di.total)}"
-            f"  Used: {format_size(di.used)}"
-            f"  Free: {format_size(di.free)}"
+        stats_text = (
+            f"Total: {format_size(di.total)}  "
+            f"Used: {format_size(di.used)}  "
+            f"Free: {format_size(di.free)}"
         )
+
+        root_path = self._state.tree.root.path
+        current_path = self._state.view_root.path
+
+        if current_path == root_path:
+            path_str = "."
+        else:
+            try:
+                relative = current_path.relative_to(root_path)
+                path_str = f"./{relative}"
+            except ValueError:
+                path_str = str(current_path)
+
+        screen_width = self.screen.size.width if hasattr(self, "screen") else 80
+
+        padded_stats = f" {stats_text} "
+        max_path_len = screen_width - len(padded_stats)
+
+        if max_path_len < 1:
+            path_str = ""
+        elif len(path_str) > max_path_len:
+            keep_length = max_path_len - len("./...")
+            if keep_length > 0:
+                truncated = path_str[-keep_length:]
+                path_str = f"./...{truncated}"
+            else:
+                path_str = path_str[:max_path_len]
+
+        text = f"{path_str}{' '*(screen_width-len(path_str)-len(padded_stats))}{padded_stats}"
+
         self.update(text)
 
     def refresh_state(self, state: AppState) -> None:
@@ -144,6 +173,8 @@ class FileTreePanel(Static):
             is_error = child.scan_status == ScanStatus.ERROR
             if is_error:
                 prefix = "!"
+            elif child.scan_status == ScanStatus.SCANNING:
+                prefix = "~"
             elif child.is_symlink:
                 prefix = "@"
             elif child.is_dir:
@@ -162,7 +193,7 @@ class FileTreePanel(Static):
                 if available >= len(full):
                     tag = f"  {full}"
                 elif available >= 5:
-                    tag = f'  "{raw[:available - 5]}..."'
+                    tag = f'  "{raw[: available - 5]}..."'
                 else:
                     tag = ""
             elif is_error:
@@ -277,6 +308,8 @@ class SizePanel(Static):
 
             if child.scan_status == ScanStatus.ERROR:
                 result.append(child.error or "error", style=sel_style)
+            elif child.scan_status == ScanStatus.SCANNING:
+                result.append("...", style=sel_style)
             elif child.scan_status == ScanStatus.DONE and child.size is not None:
                 result.append(format_size(child.size).rjust(8) + "  ", style=sel_style)
                 result.append(render_bar(child.size / max_size, _BAR_WIDTH))

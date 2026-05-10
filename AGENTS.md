@@ -93,6 +93,9 @@ uv run ruff format .
 
 # Run all pre-commit hooks against every file
 uv run pre-commit run --all-files
+
+# Run ad-hoc Python scripts
+uv run python <script.py>
 ```
 
 ## Development Workflow
