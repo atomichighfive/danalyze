@@ -1,6 +1,6 @@
 [project]
 name = "danalyze"
-version = "1.0.1"
+version = "1.0.2"
 description = "Terminal UI tool for analyzing disk space usage"
 requires-python = ">=3.11"
 dependencies = [
