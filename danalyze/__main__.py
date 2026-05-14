@@ -14,6 +14,7 @@ from danalyze.filesystem import RealFilesystem
 from danalyze.logging_config import setup_logging
 from danalyze.models import AppMode, DriveInfo, FileNode, FileTree
 from danalyze.scanner import DiskScanner
+from danalyze.script_runner import parse_script_arg
 from danalyze.state import AppState
 from danalyze.tui.app import DiskAnalyzerApp
 
@@ -60,6 +61,14 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Pre-load notes from a previous export CSV",
     )
+    parser.add_argument(
+        "--script",
+        metavar="JSON",
+        type=str,
+        default=None,
+        dest="script",
+        help='JSON array of inputs, e.g. \'["key.down", "[my note]", "key.enter"]\'',
+    )
 
     args = parser.parse_args(argv)
 
@@ -74,6 +83,13 @@ def main(argv: list[str] | None = None) -> None:
             notes = load_notes_from_csv(args.output_csv)
         except ExportError as exc:
             sys.exit(f"Error loading {args.output_csv}: {exc}")
+
+    scripted_inputs: list[str] | None = None
+    if args.script is not None:
+        try:
+            scripted_inputs = parse_script_arg(args.script)
+        except ValueError as exc:
+            sys.exit(f"Error: invalid --script value: {exc}")
 
     setup_logging(debug=args.debug, log_file=args.log_file)
 
@@ -98,8 +114,11 @@ def main(argv: list[str] | None = None) -> None:
         drive_info=drive_info,
         tree=FileTree(root=root),
     )
-    app = DiskAnalyzerApp(state=state, scanner=scanner)
-    app.run()
+    app = DiskAnalyzerApp(state=state, scanner=scanner, scripted_inputs=scripted_inputs)
+    if scripted_inputs is not None:
+        app.run(headless=True, size=(120, 40))
+    else:
+        app.run()
 
 
 def cli() -> None:

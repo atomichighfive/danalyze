@@ -114,7 +114,7 @@ Two pure functions with no I/O:
 
 ---
 
-## Phase 2: CLI `--script` Argument
+## Phase 2: CLI `--script` Argument [done]
 
 **Files created/modified:**
 - `danalyze/__main__.py`

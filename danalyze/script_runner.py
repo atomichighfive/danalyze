@@ -1,7 +1,6 @@
 """Script runner utilities for scripted-mode input parsing.
 
-Phase 1: Input Parsing Utilities.
-Pure functions with no I/O.
+Pure functions with no I/O — safe to import anywhere.
 """
 
 from __future__ import annotations
@@ -52,5 +51,5 @@ def classify_input(s: str) -> tuple[Literal["key", "text"], str]:
         and value is the extracted name for keys or the original string for text.
     """
     if s.startswith("key."):
-        return ("key", s[4:])  # Remove "key." prefix
+        return ("key", s[4:])
     return ("text", s)

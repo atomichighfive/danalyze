@@ -86,16 +86,24 @@ class DiskAnalyzerApp(App):
     }
     """
 
-    def __init__(self, state: AppState, scanner: DiskScanner) -> None:
+    def __init__(
+        self,
+        state: AppState,
+        scanner: DiskScanner,
+        scripted_inputs: list[str] | None = None,
+    ) -> None:
         """Initialise the app with an initial state and scanner.
 
         Args:
             state: Initial application state.
             scanner: DiskScanner for filesystem operations.
+            scripted_inputs: Optional list of scripted inputs for headless mode.
+                When provided, the app runs headless and processes inputs sequentially.
         """
         super().__init__()
         self._state = state
         self._scanner = scanner
+        self._scripted_inputs = scripted_inputs
         self._overlay: NoteOverlay | PromptOverlay | None = None
         self._scroll_offset: int = 0
 
