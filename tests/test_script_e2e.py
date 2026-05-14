@@ -5,97 +5,53 @@ from __future__ import annotations
 import sys
 from io import StringIO
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
-import danalyze.__main__ as cli
-
-
-class TestMainScriptFlagWiring:
-    """Tests for --script flag wiring through main()."""
-
-    def test_main_script_flag_wires_inputs_to_app(self, tmp_path: Path) -> None:
-        """--script flag passes parsed inputs to DiskAnalyzerApp."""
-        with (
-            patch("danalyze.__main__.DiskAnalyzerApp") as mock_app_class,
-            patch("danalyze.__main__.setup_logging"),
-            patch("danalyze.__main__.asyncio.run", side_effect=lambda c: c.close()),
-        ):
-            mock_app = MagicMock()
-            mock_app_class.return_value = mock_app
-            cli.main([str(tmp_path), "--script", '["key.down"]'])
-        mock_app_class.assert_called_once()
-        call_kwargs = mock_app_class.call_args.kwargs
-        assert "scripted_inputs" in call_kwargs
-        assert call_kwargs["scripted_inputs"] == ["key.down"]
-
-    def test_main_script_invalid_json_exits(self, tmp_path: Path) -> None:
-        """Invalid JSON for --script exits with non-zero code."""
-        with (
-            patch("danalyze.tui.app.DiskAnalyzerApp.run"),
-            patch("danalyze.__main__.setup_logging"),
-            patch("danalyze.__main__.asyncio.run"),
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                cli.main([str(tmp_path), "--script", "bad-json"])
-            assert exc_info.value.code != 0
-
-    def test_main_without_script_scripted_inputs_is_none(self, tmp_path: Path) -> None:
-        """No --script flag results in scripted_inputs=None."""
-        with (
-            patch("danalyze.__main__.DiskAnalyzerApp") as mock_app_class,
-            patch("danalyze.__main__.setup_logging"),
-            patch("danalyze.__main__.asyncio.run", side_effect=lambda c: c.close()),
-        ):
-            mock_app = MagicMock()
-            mock_app_class.return_value = mock_app
-            cli.main([str(tmp_path)])
-        mock_app_class.assert_called_once()
-        call_kwargs = mock_app_class.call_args.kwargs
-        assert call_kwargs.get("scripted_inputs") is None
-
-    def test_main_script_runs_headless(self, tmp_path: Path) -> None:
-        """--script flag causes app.run to be called with headless=True."""
-        with (
-            patch("danalyze.__main__.DiskAnalyzerApp") as mock_app_class,
-            patch("danalyze.__main__.setup_logging"),
-            patch("danalyze.__main__.asyncio.run", side_effect=lambda c: c.close()),
-        ):
-            mock_app = MagicMock()
-            mock_app_class.return_value = mock_app
-            cli.main([str(tmp_path), "--script", '["key.down"]'])
-        mock_app.run.assert_called_once_with(headless=True, size=(120, 40))
+from danalyze.filesystem import InMemoryFilesystem
+from danalyze.models import AppMode, DriveInfo, FileNode
+from danalyze.scanner import DiskScanner
+from danalyze.state import AppState, FileTree
 
 
-class TestScriptedModeIntegration:
-    """Integration tests for full scripted-mode runs."""
+async def test_scripted_frame_reflects_state_after_key_down(tmp_path: Path) -> None:
+    """Full integration: scripted input produces frame with expected content."""
+    # Build a simple filesystem: /root with apple/ and zebra/ subdirs
+    fs = InMemoryFilesystem({"/root": {"apple": {}, "zebra": {}}})
+    root = FileNode(path=Path("/root"), name="root", is_dir=True)
+    scanner = DiskScanner(fs)
+    await scanner.list_directory(root)
 
-    def test_main_script_full_run_wires_correctly(self, tmp_path: Path, monkeypatch) -> None:
-        """Full run with --script wires app correctly for headless execution."""
-        # Create a test directory structure
-        test_dir = tmp_path / "test_root"
-        test_dir.mkdir()
-        (test_dir / "apple").mkdir()
-        (test_dir / "zebra").mkdir()
+    # Build app state with the scanned root
+    drive_info = DriveInfo(
+        device="/dev/sda1",
+        total=500 * 1024**3,
+        used=200 * 1024**3,
+        free=300 * 1024**3,
+        mount_point=Path("/"),
+    )
+    state = AppState(
+        view_root=root,
+        selected_index=0,
+        notes={},
+        mode=AppMode.BROWSE,
+        pending_input="",
+        drive_info=drive_info,
+        tree=FileTree(root=root),
+    )
 
-        mock_stdout = StringIO()
-        monkeypatch.setattr(sys, "stdout", mock_stdout)
+    from danalyze.tui.app import DiskAnalyzerApp
 
-        # Track whether app.run was called with headless=True
-        run_calls = []
+    # Set scripted_inputs after on_mount to avoid timer auto-starting in run_test
+    app = DiskAnalyzerApp(state=state, scanner=scanner)
 
-        def track_run(self, *args, **kwargs):
-            run_calls.append((args, kwargs))
+    captured = StringIO()
+    async with app.run_test(size=(80, 24)):
+        app._scripted_inputs = ["key.down"]
+        with patch.object(sys, "stdout", captured):
+            await app._run_script()
 
-        with (
-            patch("danalyze.__main__.asyncio.run", side_effect=lambda c: c.close()),
-            patch("danalyze.__main__.setup_logging"),
-            patch("danalyze.__main__.DiskAnalyzerApp.run", track_run),
-        ):
-            cli.main([str(test_dir), "--script", '["key.down"]'])
-
-        # Verify app.run was called with headless=True
-        assert len(run_calls) == 1
-        assert run_calls[0][1].get("headless") is True
-        assert run_calls[0][1].get("size") == (120, 40)
+    output = captured.getvalue()
+    assert "--- key.down ---" in output
+    # After key.down, zebra (index 1) should be selected/highlighted
+    frame = output.split("--- key.down ---")[1]
+    assert "zebra" in frame

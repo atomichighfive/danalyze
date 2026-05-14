@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import io
 import sys
 from pathlib import Path
 
+from rich.console import Console
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
@@ -122,8 +124,8 @@ class DiskAnalyzerApp(App):
             DiskAnalyzerApp.ScanProgress(node)
         )
         if self._scripted_inputs is not None:
-            # Schedule scripted execution with minimal interval to avoid ZeroDivisionError
-            self.set_timer(0.001, lambda: self._run_script())
+            # Textual raises ZeroDivisionError on set_timer(0, ...) — use a minimal non-zero delay.
+            self.set_timer(0.001, self._run_script)
 
     def compose(self) -> ComposeResult:
         """Build the widget tree.
@@ -493,10 +495,6 @@ class DiskAnalyzerApp(App):
         Returns:
             Plain text representation of the full screen, including overlays.
         """
-        import io
-
-        from rich.console import Console
-
         width, height = self.size
         buf = io.StringIO()
         console = Console(

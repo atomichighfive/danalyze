@@ -116,16 +116,17 @@ async def test_dispatch_key_enter_opens_note_overlay(base_state) -> None:
 
 
 async def test_dispatch_text_types_into_input(base_state) -> None:
-    """dispatch_text types characters into pending_input."""
-    app = DiskAnalyzerApp(
-        state=base_state(mode="BROWSE"),
-        scanner=MagicMock(),
-    )
+    """dispatch_text types characters into pending_input when in NOTE_INPUT mode."""
+    app = _make_app(base_state)
     async with app.run_test(size=(80, 24)):
+        # Open note overlay to enter NOTE_INPUT mode
+        await app._dispatch_key("enter")
+        await asyncio.sleep(0)
+        # Now type text
         await app._dispatch_text("hello")
         await asyncio.sleep(0)
-    # Text should be appended to pending_input via on_key handlers
-    # The actual behavior depends on the app's mode
+    # Verify text was appended to pending_input
+    assert app._state.pending_input == "hello"
 
 
 async def test_run_script_writes_frames_to_stdout(base_state) -> None:
