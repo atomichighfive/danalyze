@@ -185,7 +185,7 @@ This captures the full composited screen — correct side-by-side layout, overla
 
 ---
 
-## Phase 4: Scripted Execution Worker
+## Phase 4: Scripted Execution Worker [done]
 
 **Files created/modified:**
 - `danalyze/tui/app.py`
