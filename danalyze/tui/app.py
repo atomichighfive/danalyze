@@ -476,3 +476,32 @@ class DiskAnalyzerApp(App):
         self.query_one(FileTreePanel).refresh_state(self._state, self._scroll_offset, h)
         self.query_one(SizePanel).refresh_state(self._state, self._scroll_offset, h)
         self.query_one(StatusBar).refresh_state(self._state)
+
+    def _capture_screen_as_text(self) -> str:
+        """Capture the full composited screen as plain text.
+
+        Uses the same compositing pipeline as export_screenshot() but exports
+        plain text instead of an image format.
+
+        Returns:
+            Plain text representation of the full screen, including overlays.
+        """
+        import io
+
+        from rich.console import Console
+
+        width, height = self.size
+        buf = io.StringIO()
+        console = Console(
+            width=width,
+            height=height,
+            file=buf,
+            force_terminal=False,
+            record=True,
+            no_color=True,
+        )
+        screen_render = self.screen._compositor.render_update(
+            full=True, screen_stack=self.app._background_screens
+        )
+        console.print(screen_render)
+        return console.export_text()

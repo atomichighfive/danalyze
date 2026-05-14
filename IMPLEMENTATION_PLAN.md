@@ -142,7 +142,7 @@ Two pure functions with no I/O:
 
 ---
 
-## Phase 3: Full-Screen Plain-Text Capture
+## Phase 3: Full-Screen Plain-Text Capture [done]
 
 **Files created/modified:**
 - `danalyze/tui/app.py`
