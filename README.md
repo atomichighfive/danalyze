@@ -45,6 +45,31 @@ danalyze --debug              # enable debug logging (writes danalyze.log)
 danalyze -o notes.csv         # pre-load notes from a previous export
 ```
 
+### Scripted Mode (Agent UAT)
+
+Run danalyze in headless mode with a script of inputs for automated testing:
+
+```bash
+# Navigate down and enter a directory
+danalyze --script '["key.down", "key.right"]'
+
+# Add a note to the currently selected item
+danalyze --script '["key.enter", "my note text", "key.enter"]'
+
+# Scan sizes
+danalyze --script '["key.r"]'
+
+# Full test sequence: navigate, note, scan, quit
+danalyze --script '["key.down", "key.enter", "test note", "key.enter", "key.r", "key.q", "key.y"]'
+```
+
+Each input is processed sequentially. After each input, the full screen is
+output to stdout as plain text, prefixed with `--- <input> ---`.
+
+**Input formats:**
+- Key events: `"key.<name>"` (e.g., `"key.down"`, `"key.enter"`, `"key.q"`)
+- Text input: plain strings (each character is typed individually)
+
 ## Key bindings
 
 | Key | Action |

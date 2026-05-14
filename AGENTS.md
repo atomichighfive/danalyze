@@ -98,6 +98,83 @@ uv run pre-commit run --all-files
 uv run python <script.py>
 ```
 
+## Agent UAT (Scripted Mode)
+
+For automated testing by agents or CI systems, use the `--script` flag to run
+danalyze in headless mode with a predefined sequence of inputs:
+
+```bash
+# Basic usage: pass a JSON array of inputs
+uv run python -m danalyze --script '["key.down", "key.right"]'
+
+# With a specific path
+uv run python -m danalyze /some/path --script '["key.r"]'
+
+# With debug logging
+uv run python -m danalyze --debug --script '["key.down", "key.enter"]'
+```
+
+### Script Format
+
+The `--script` argument accepts a JSON array of strings. Each string is either:
+
+- **Key event**: `"key.<name>"` — simulates pressing a key
+  - Navigation: `"key.up"`, `"key.down"`, `"key.left"`, `"key.right"`
+  - Actions: `"key.enter"` (note/edit), `"key.r"` (scan), `"key.q"` (quit)
+  - Confirmation: `"key.y"` (yes), `"key.n"` (no)
+- **Text input**: plain string — each character is typed sequentially
+  (useful for entering note text)
+
+### Output Format
+
+For each input in the script, danalyze outputs:
+1. A separator line: `--- <input> ---`
+2. The full screen as plain text (InfoBar, FileTreePanel, SizePanel, StatusBar)
+
+Example output:
+```
+--- key.down ---
+.                               Total: 500.0 GB  Used: 200.0 GB  Free: 300.0 GB 
+> apple/                                             --- 
+  zebra/                                             --- 
+[up/down] navigate  [right] enter dir  [left] back  [r] scan  [s] sort  [enter] 
+
+--- key.right ---
+.                               Total: 500.0 GB  Used: 200.0 GB  Free: 300.0 GB 
+  apple/                                             --- 
+> zebra/                                             --- 
+[up/down] navigate  [right] enter dir  [left] back  [r] scan  [s] sort  [enter] 
+```
+
+### Writing Agent Tests
+
+Create test scripts that parse the stdout output to verify UI state:
+
+```python
+import subprocess
+import json
+
+def test_navigation():
+    result = subprocess.run(
+        ["danalyze", "--script", '[\"key.down\"]'],
+        capture_output=True,
+        text=True
+    )
+    output = result.stdout
+    assert "--- key.down ---" in output
+    # Verify selection moved to second item
+    frame = output.split("--- key.down ---")[1]
+    assert "zebra" in frame  # assuming zebra is the second item
+```
+
+### Tips
+
+- Start with simple scripts (1-2 inputs) and verify output manually
+- Use `"key.down"` and `"key.up"` to navigate the file list
+- Use `"key.enter"` to open the note overlay, then provide text, then `"key.enter"` again to save
+- Use `"key.q"` followed by `"key.y"` to quit the application
+- The `> ` prefix in the file tree indicates the currently selected item
+
 ## Development Workflow
 
 This project uses **test-driven development** within a phased implementation plan.
