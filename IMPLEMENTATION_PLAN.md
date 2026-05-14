@@ -248,7 +248,7 @@ Add `_dispatch_scripted_input(self, input_str: str) -> None` (async):
 
 ---
 
-## Phase 5: End-to-End CLI Wiring Tests
+## Phase 5: End-to-End CLI Wiring Tests [done]
 
 **Files created/modified:**
 - `tests/test_script_e2e.py` (new)
