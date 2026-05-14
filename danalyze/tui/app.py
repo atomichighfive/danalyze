@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import io
+import sys
 from pathlib import Path
 
+from rich.console import Console
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
@@ -15,6 +19,7 @@ from danalyze.export import build_notes_df, write_export
 from danalyze.logging_config import begin_async_process, get_logger, set_async_process_id
 from danalyze.models import AppMode, FileNode, ScanStatus
 from danalyze.scanner import DiskScanner
+from danalyze.script_runner import classify_input
 from danalyze.state import (
     AppState,
     append_input,
@@ -86,29 +91,41 @@ class DiskAnalyzerApp(App):
     }
     """
 
-    def __init__(self, state: AppState, scanner: DiskScanner) -> None:
+    def __init__(
+        self,
+        state: AppState,
+        scanner: DiskScanner,
+        scripted_inputs: list[str] | None = None,
+    ) -> None:
         """Initialise the app with an initial state and scanner.
 
         Args:
             state: Initial application state.
             scanner: DiskScanner for filesystem operations.
+            scripted_inputs: Optional list of scripted inputs for headless mode.
+                When provided, the app runs headless and processes inputs sequentially.
         """
         super().__init__()
         self._state = state
         self._scanner = scanner
+        self._scripted_inputs = scripted_inputs
         self._overlay: NoteOverlay | PromptOverlay | None = None
         self._scroll_offset: int = 0
 
     def on_mount(self) -> None:
-        """Wire the scanner's on_progress callback to post ScanProgress messages.
+        """Wire the scanner's on_progress callback and schedule scripted worker.
 
         Side effects:
             Assigns self._scanner._on_progress so progress events flow into
             the Textual message bus.
+            Schedules _run_script worker if scripted_inputs were provided.
         """
         self._scanner._on_progress = lambda node: self.post_message(
             DiskAnalyzerApp.ScanProgress(node)
         )
+        if self._scripted_inputs is not None:
+            # Textual raises ZeroDivisionError on set_timer(0, ...) — use a minimal non-zero delay.
+            self.set_timer(0.001, self._run_script)
 
     def compose(self) -> ComposeResult:
         """Build the widget tree.
@@ -468,3 +485,88 @@ class DiskAnalyzerApp(App):
         self.query_one(FileTreePanel).refresh_state(self._state, self._scroll_offset, h)
         self.query_one(SizePanel).refresh_state(self._state, self._scroll_offset, h)
         self.query_one(StatusBar).refresh_state(self._state)
+
+    def _capture_screen_as_text(self) -> str:
+        """Capture the full composited screen as plain text.
+
+        Uses the same compositing pipeline as export_screenshot() but exports
+        plain text instead of an image format.
+
+        Returns:
+            Plain text representation of the full screen, including overlays.
+        """
+        width, height = self.size
+        buf = io.StringIO()
+        console = Console(
+            width=width,
+            height=height,
+            file=buf,
+            force_terminal=False,
+            record=True,
+            no_color=True,
+        )
+        screen_render = self.screen._compositor.render_update(
+            full=True, screen_stack=self.app._background_screens
+        )
+        console.print(screen_render)
+        return console.export_text()
+
+    async def _run_script(self) -> None:
+        """Process all scripted inputs sequentially and output frames.
+
+        Side effects:
+            Dispatches each input, waits for workers to complete, captures the
+            screen as text, and writes frames to stdout. Exits the app when done.
+        """
+        for input_str in self._scripted_inputs or []:
+            await self._dispatch_scripted_input(input_str)
+            await asyncio.sleep(0)  # yield - let sync handlers fire
+            await self.workers.wait_for_complete()  # wait for scan workers etc.
+            text = self._capture_screen_as_text()
+            sys.stdout.write(f"\n--- {input_str} ---\n{text}\n")
+            sys.stdout.flush()
+        self.exit()
+
+    async def _dispatch_scripted_input(self, input_str: str) -> None:
+        """Dispatch a single scripted input to the app.
+
+        Args:
+            input_str: The input string to dispatch (e.g. "key.down" or "hello").
+        """
+        category, value = classify_input(input_str)
+        if category == "key":
+            await self._dispatch_key(value)
+        else:
+            await self._dispatch_text(value)
+
+    async def _dispatch_key(self, key_name: str) -> None:
+        """Dispatch a key input by name.
+
+        Args:
+            key_name: The key name (e.g. "down", "enter", "r").
+        """
+        # BINDING keys are handled via action_* methods
+        if key_name == "up":
+            self.action_nav_up()
+        elif key_name == "down":
+            self.action_nav_down()
+        elif key_name == "left":
+            self.action_nav_left()
+        elif key_name == "right":
+            await self.action_nav_right()
+        elif key_name == "r":
+            self.action_scan()
+        else:
+            # Non-BINDING keys go through on_key
+            await self.on_key(
+                events.Key(key=key_name, character=key_name if len(key_name) == 1 else None)
+            )
+
+    async def _dispatch_text(self, text: str) -> None:
+        """Dispatch text input by typing each character.
+
+        Args:
+            text: The text string to type.
+        """
+        for char in text:
+            await self.on_key(events.Key(key=char, character=char))
